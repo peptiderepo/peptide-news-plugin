@@ -74,12 +74,12 @@ class Peptide_News_Fetcher {
 
         // Run AI analysis on newly fetched articles (keywords + summary).
         if ( class_exists( 'Peptide_News_LLM' ) && Peptide_News_LLM::is_enabled() ) {
-            $llm_batch_size = min( $stored + 5, 20 ); // Process recent unanalyzed, cap at 20.
+            $llm_batch_size = absint( get_option( 'peptide_news_llm_max_articles', 10 ) );
             $llm_processed  = Peptide_News_LLM::process_unanalyzed( $llm_batch_size );
 
             // Append LLM stats to the fetch log.
             $fetch_log = get_option( 'peptide_news_last_fetch' );
-            if ( $fetch_log ) {
+            if ( is_array( $fetch_log ) ) {
                 $fetch_log['ai_processed'] = $llm_processed;
                 update_option( 'peptide_news_last_fetch', $fetch_log );
             }
