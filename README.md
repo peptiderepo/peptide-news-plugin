@@ -1,0 +1,3 @@
+# Peptide News Aggregator
+
+Initializing repository...
