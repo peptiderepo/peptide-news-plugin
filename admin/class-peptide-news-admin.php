@@ -63,7 +63,7 @@ class Peptide_News_Admin {
         wp_localize_script( $this->plugin_name . '-admin', 'peptideNewsAdmin', array(
             'ajax_url' => admin_url( 'admin-ajax.php' ),
             'rest_url' => rest_url( 'peptide-news/v1/' ),
-            'nonce'    => wp_create_nonce( 'wp_rest' ),
+            'nonce'    => wp_create_nonce( 'WP_Rest' ),
         ) );
     }
 
@@ -161,6 +161,21 @@ class Peptide_News_Admin {
         $this->add_setting( 'article_retention', __( 'Article Retention (days)', 'peptide-news' ), 'render_article_retention_field', 'peptide_news_analytics_section' );
         $this->add_setting( 'analytics_retention', __( 'Analytics Data Retention (days)', 'peptide-news' ), 'render_retention_field', 'peptide_news_analytics_section' );
         $this->add_setting( 'anonymize_ip', __( 'Anonymize IPs', 'peptide-news' ), 'render_anonymize_ip_field', 'peptide_news_analytics_section' );
+
+        // --- AI / LLM section ---
+        add_settings_section(
+            'peptide_news_llm_section',
+            __( 'AI Analysis (OpenRouter)', 'peptide-news' ),
+            function () {
+                echo '<p>' . esc_html__( 'Configure LLM-powered keyword extraction and article summarization via OpenRouter.', 'peptide-news' ) . '</p>';
+            },
+            'peptide-news-settings'
+        );
+
+        $this->add_setting( 'llm_enabled', __( 'Enable AI Analysis', 'peptide-news' ), 'render_llm_enabled_field', 'peptide_news_llm_section' );
+        $this->add_setting( 'openrouter_api_key', __( 'OpenRouter API Key', 'peptide-news' ), 'render_openrouter_key_field', 'peptide_news_llm_section' );
+        $this->add_setting( 'llm_keywords_model', __( 'Keywords Model', 'peptide-news' ), 'render_llm_keywords_model_field', 'peptide_news_llm_section' );
+        $this->add_setting( 'llm_summary_model', __( 'Summary Model', 'peptide-news' ), 'render_llm_summary_model_field', 'peptide_news_llm_section' );
     }
 
     /**
@@ -286,6 +301,47 @@ class Peptide_News_Admin {
         );
     }
 
+    // --- AI / LLM field renderers ---
+
+    public function render_llm_enabled_field() {
+        $value = get_option( 'peptide_news_llm_enabled', 0 );
+        printf(
+            '<label><input type="checkbox" name="peptide_news_llm_enabled" value="1" %s /> %s</label>',
+            checked( $value, 1, false ),
+            esc_html__( 'Analyze articles with AI during each fetch cycle', 'peptide-news' )
+        );
+    }
+
+    public function render_openrouter_key_field() {
+        $value = get_option( 'peptide_news_openrouter_api_key', '' );
+        printf(
+            '<input type="password" name="peptide_news_openrouter_api_key" value="%s" class="regular-text" />',
+            esc_attr( $value )
+        );
+        echo '<p class="description">' . wp_kses(
+            __( 'Get an API key at <a href="https://openrouter.ai/keys" target="_blank" rel="noopener">openrouter.ai/keys</a>.', 'peptide-news' ),
+            array( 'a' => array( 'href' => array(), 'target' => array(), 'rel' => array() ) )
+        ) . '</p>';
+    }
+
+    public function render_llm_keywords_model_field() {
+        $value = get_option( 'peptide_news_llm_keywords_model', 'google/gemini-2.0-flash-001' );
+        printf(
+            '<input type="text" name="peptide_news_llm_keywords_model" value="%s" class="regular-text" />',
+            esc_attr( $value )
+        );
+        echo '<p class="description">' . esc_html__( 'OpenRouter model ID for keyword extraction (e.g., google/gemini-2.0-flash-001, openai/gpt-4o-mini).', 'peptide-news' ) . '</p>';
+    }
+
+    public function render_llm_summary_model_field() {
+        $value = get_option( 'peptide_news_llm_summary_model', 'google/gemini-2.0-flash-001' );
+        printf(
+            '<input type="text" name="peptide_news_llm_summary_model" value="%s" class="regular-text" />',
+            esc_attr( $value )
+        );
+        echo '<p class="description">' . esc_html__( 'OpenRouter model ID for article summarization (e.g., google/gemini-2.0-flash-001, anthropic/claude-3.5-sonnet).', 'peptide-news' ) . '</p>';
+    }
+
     // --- Page renderers ---
 
     public function render_settings_page() {
@@ -312,14 +368,22 @@ class Peptide_News_Admin {
         // Last fetch info.
         $last_fetch = get_option( 'peptide_news_last_fetch' );
         if ( $last_fetch ) {
+            $ai_info = '';
+            if ( isset( $last_fetch['ai_processed'] ) ) {
+                $ai_info = sprintf( ' | %s: %d',
+                    esc_html__( 'AI analyzed', 'peptide-news' ),
+                    $last_fetch['ai_processed']
+                );
+            }
             printf(
-                '<p class="description">%s: %s | %s: %d | %s: %d</p>',
+                '<p class="description">%s: %s | %s: %d | %s: %d%s</p>',
                 esc_html__( 'Last fetch', 'peptide-news' ),
                 esc_html( $last_fetch['time'] ),
                 esc_html__( 'Found', 'peptide-news' ),
                 $last_fetch['found'],
                 esc_html__( 'New stored', 'peptide-news' ),
-                $last_fetch['new_stored']
+                $last_fetch['new_stored'],
+                $ai_info
             );
         }
 
@@ -384,7 +448,7 @@ class Peptide_News_Admin {
             foreach ( $data as $row ) {
                 fputcsv( $output, $row );
             }
-      (        } else {
+        } else {
             fputcsv( $output, array( 'No data for selected period' ) );
         }
 
