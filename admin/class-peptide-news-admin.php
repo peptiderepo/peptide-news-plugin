@@ -63,7 +63,7 @@ class Peptide_News_Admin {
         wp_localize_script( $this->plugin_name . '-admin', 'peptideNewsAdmin', array(
             'ajax_url' => admin_url( 'admin-ajax.php' ),
             'rest_url' => rest_url( 'peptide-news/v1/' ),
-            'nonce'    => wp_create_nonce( 'WP_Rest' ),
+            'nonce'    => wp_create_nonce( 'wp_rest' ),
         ) );
     }
 
@@ -176,6 +176,7 @@ class Peptide_News_Admin {
         $this->add_setting( 'openrouter_api_key', __( 'OpenRouter API Key', 'peptide-news' ), 'render_openrouter_key_field', 'peptide_news_llm_section' );
         $this->add_setting( 'llm_keywords_model', __( 'Keywords Model', 'peptide-news' ), 'render_llm_keywords_model_field', 'peptide_news_llm_section' );
         $this->add_setting( 'llm_summary_model', __( 'Summary Model', 'peptide-news' ), 'render_llm_summary_model_field', 'peptide_news_llm_section' );
+        $this->add_setting( 'llm_max_articles', __( 'Max Articles per Cycle', 'peptide-news' ), 'render_llm_max_articles_field', 'peptide_news_llm_section' );
     }
 
     /**
@@ -184,7 +185,11 @@ class Peptide_News_Admin {
     private function add_setting( $key, $label, $callback, $section ) {
         $option_name = "peptide_news_{$key}";
 
-        register_setting( 'peptide_news_settings_group', $option_name );
+        $sanitize_cb = $this->get_sanitize_callback( $key );
+
+        register_setting( 'peptide_news_settings_group', $option_name, array(
+            'sanitize_callback' => $sanitize_cb,
+        ) );
 
         add_settings_field(
             $option_name,
@@ -193,6 +198,59 @@ class Peptide_News_Admin {
             'peptide-news-settings',
             $section
         );
+    }
+
+    /**
+     * Return the appropriate sanitize callback for a given setting key.
+     *
+     * @param string $key Setting key (without prefix).
+     * @return callable
+     */
+    private function get_sanitize_callback( $key ) {
+        $callbacks = array(
+            'fetch_interval'       => 'sanitize_text_field',
+            'articles_count'       => 'absint',
+            'search_keywords'      => 'sanitize_text_field',
+            'rss_enabled'          => 'absint',
+            'rss_feeds'            => 'sanitize_textarea_field',
+            'newsapi_enabled'      => 'absint',
+            'newsapi_key'          => 'sanitize_text_field',
+            'article_retention'    => 'absint',
+            'analytics_retention'  => 'absint',
+            'anonymize_ip'         => 'absint',
+            'llm_enabled'          => 'absint',
+            'openrouter_api_key'   => 'sanitize_text_field',
+            'llm_keywords_model'   => array( $this, 'sanitize_model_id' ),
+            'llm_summary_model'    => array( $this, 'sanitize_model_id' ),
+            'llm_max_articles'     => 'absint',
+            'thumbnail_fallback'   => 'esc_url_raw',
+        );
+
+        return isset( $callbacks[ $key ] ) ? $callbacks[ $key ] : 'sanitize_text_field';
+    }
+
+    /**
+     * Sanitize and validate an OpenRouter model ID.
+     *
+     * @param string $value Raw input.
+     * @return string Sanitized model ID or default.
+     */
+    public function sanitize_model_id( $value ) {
+        $value = sanitize_text_field( $value );
+        if ( ! empty( $value ) && class_exists( 'Peptide_News_LLM' ) && ! Peptide_News_LLM::is_valid_model( $value ) ) {
+            add_settings_error(
+                'peptide_news_settings_group',
+                'invalid_model',
+                sprintf(
+                    /* translators: %s: model ID */
+                    __( 'Invalid model ID format: %s. Expected format: provider/model-name', 'peptide-news' ),
+                    esc_html( $value )
+                ),
+                'error'
+            );
+            return 'google/gemini-2.0-flash-001';
+        }
+        return $value;
     }
 
     // --- Field renderers ---
@@ -340,6 +398,15 @@ class Peptide_News_Admin {
             esc_attr( $value )
         );
         echo '<p class="description">' . esc_html__( 'OpenRouter model ID for article summarization (e.g., google/gemini-2.0-flash-001, anthropic/claude-3.5-sonnet).', 'peptide-news' ) . '</p>';
+    }
+
+    public function render_llm_max_articles_field() {
+        $value = get_option( 'peptide_news_llm_max_articles', 10 );
+        printf(
+            '<input type="number" name="peptide_news_llm_max_articles" value="%d" min="1" max="50" class="small-text" />',
+            absint( $value )
+        );
+        echo '<p class="description">' . esc_html__( 'Maximum number of articles to analyze with AI per fetch cycle. Controls API costs and prevents cron timeouts.', 'peptide-news' ) . '</p>';
     }
 
     // --- Page renderers ---
