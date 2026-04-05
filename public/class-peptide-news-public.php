@@ -131,7 +131,11 @@ class Peptide_News_Public {
                         </h3>
 
                         <p class="pn-article-excerpt">
-                            <?php echo esc_html( $article->excerpt ); ?>
+                            <?php
+                            // Prefer AI summary over raw excerpt.
+                            $display_text = ! empty( $article->ai_summary ) ? $article->ai_summary : $article->excerpt;
+                            echo esc_html( $display_text );
+                            ?>
                         </p>
 
                         <?php if ( ! empty( $article->author ) ) : ?>
@@ -140,14 +144,17 @@ class Peptide_News_Public {
                             </span>
                         <?php endif; ?>
 
-                        <?php if ( ! empty( $article->categories ) ) : ?>
+                        <?php
+                        // Show AI-extracted keyword tags if available, fall back to categories.
+                        $tag_source = ! empty( $article->tags ) ? $article->tags : ( $article->categories ?? '' );
+                        if ( ! empty( $tag_source ) ) : ?>
                             <div class="pn-tags">
                                 <?php
-                                $cats = array_map( 'trim', explode( ',', $article->categories ) );
-                                foreach ( array_slice( $cats, 0, 3 ) as $cat ) :
-                                    if ( empty( $cat ) ) continue;
+                                $tag_items = array_map( 'trim', explode( ',', $tag_source ) );
+                                foreach ( array_slice( $tag_items, 0, 5 ) as $tag_item ) :
+                                    if ( empty( $tag_item ) ) continue;
                                 ?>
-                                    <span class="pn-tag"><?php echo esc_html( $cat ); ?></span>
+                                    <span class="pn-tag"><?php echo esc_html( $tag_item ); ?></span>
                                 <?php endforeach; ?>
                             </div>
                         <?php endif; ?>
@@ -217,13 +224,13 @@ class Peptide_News_Public {
         }
 
         $articles = $wpdb->get_results( $wpdb->prepare(
-            "SELECT id, source, source_url, title, excerpt, author, thumbnail_url,
-                   published_at, categories
+            "SELECT id, source, source_url, title, excerpt, ai_summary, author, thumbnail_url,
+                    published_at, categories, tags
              FROM {$table}
              WHERE is_active = 1
              ORDER BY published_at DESC
              LIMIT %d",
-             $count
+            $count
         ) );
 
         // Cache for 5 minutes.
@@ -290,7 +297,7 @@ class Peptide_News_Widget extends WP_Widget {
         $count = isset( $instance['count'] ) ? absint( $instance['count'] ) : 5;
 
         echo $args['before_widget'];
-        
+
         if ( $title ) {
             echo $args['before_title'] . esc_html( $title ) . $args['after_title'];
         }
@@ -315,7 +322,7 @@ class Peptide_News_Widget extends WP_Widget {
         </p>
         <p>
             <label for="<?php echo esc_attr( $this->get_field_id( 'count' ) ); ?>">
-                <?php esc_html_e( 'Number of articles:'', 'peptide-news' ); ?>
+                <?php esc_html_e( 'Number of articles:', 'peptide-news' ); ?>
             </label>
             <input class="tiny-text" id="<?php echo esc_attr( $this->get_field_id( 'count' ) ); ?>"
                    name="<?php echo esc_attr( $this->get_field_name( 'count' ) ); ?>"
