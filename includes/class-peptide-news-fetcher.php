@@ -72,6 +72,19 @@ class Peptide_News_Fetcher {
             'new_stored' => $stored,
         ) );
 
+        // Run AI analysis on newly fetched articles (keywords + summary).
+        if ( class_exists( 'Peptide_News_LLM' ) && Peptide_News_LLM::is_enabled() ) {
+            $llm_batch_size = min( $stored + 5, 20 ); // Process recent unanalyzed, cap at 20.
+            $llm_processed  = Peptide_News_LLM::process_unanalyzed( $llm_batch_size );
+
+            // Append LLM stats to the fetch log.
+            $fetch_log = get_option( 'peptide_news_last_fetch' );
+            if ( $fetch_log ) {
+                $fetch_log['ai_processed'] = $llm_processed;
+                update_option( 'peptide_news_last_fetch', $fetch_log );
+            }
+        }
+
         // Prune old articles beyond retention period.
         $this->prune_old_articles();
     }
@@ -206,8 +219,8 @@ class Peptide_News_Fetcher {
     private function store_article( $article ) {
         global $wpdb;
 
-        $table = $wpdb->prefix \. 'peptide_news_articles';
-        $hash = hash( 'sha256', $article['source_url'] );
+        $table = $wpdb->prefix . 'peptide_news_articles';
+        $hash  = hash( 'sha256', $article['source_url'] );
 
         // Check for duplicate.
         $exists = $wpdb->get_var( $wpdb->prepare(
