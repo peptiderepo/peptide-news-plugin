@@ -42,6 +42,7 @@ class Peptide_News_Activator {
             tags VARCHAR(500) NOT NULL DEFAULT '',
             language VARCHAR(10) NOT NULL DEFAULT 'en',
             sentiment_score FLOAT DEFAULT NULL,
+            ai_summary TEXT NOT NULL DEFAULT '',
             hash VARCHAR(64) NOT NULL DEFAULT '',
             is_active TINYINT(1) NOT NULL DEFAULT 1,
             PRIMARY KEY (id),
@@ -113,6 +114,10 @@ class Peptide_News_Activator {
             'article_retention'    => 90,
             'analytics_retention'  => 365,
             'anonymize_ip'         => 1,
+            'llm_enabled'          => 0,
+            'openrouter_api_key'   => '',
+            'llm_keywords_model'   => 'google/gemini-2.0-flash-001',
+            'llm_summary_model'    => 'google/gemini-2.0-flash-001',
         );
 
         foreach ( $defaults as $key => $value ) {
