@@ -33,7 +33,7 @@ class Peptide_News_Activator {
             source_url VARCHAR(2048) NOT NULL DEFAULT '',
             title TEXT NOT NULL,
             excerpt TEXT NOT NULL,
-            content LONGTEXT NOT NULL DEFAULT '',
+            content LONGTEXT NOT NULL,
             author VARCHAR(255) NOT NULL DEFAULT '',
             thumbnail_url VARCHAR(2048) NOT NULL DEFAULT '',
             published_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -42,7 +42,7 @@ class Peptide_News_Activator {
             tags VARCHAR(500) NOT NULL DEFAULT '',
             language VARCHAR(10) NOT NULL DEFAULT 'en',
             sentiment_score FLOAT DEFAULT NULL,
-            ai_summary TEXT NOT NULL DEFAULT '',
+            ai_summary TEXT NOT NULL,
             hash VARCHAR(64) NOT NULL DEFAULT '',
             is_active TINYINT(1) NOT NULL DEFAULT 1,
             PRIMARY KEY (id),
@@ -59,7 +59,7 @@ class Peptide_News_Activator {
             article_id BIGINT(20) UNSIGNED NOT NULL,
             clicked_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             user_ip VARCHAR(45) NOT NULL DEFAULT '',
-            user_agent TEXT NOT NULL DEFAULT '',
+            user_agent TEXT NOT NULL,
             referrer_url VARCHAR(2048) NOT NULL DEFAULT '',
             page_url VARCHAR(2048) NOT NULL DEFAULT '',
             session_id VARCHAR(64) NOT NULL DEFAULT '',
@@ -118,6 +118,7 @@ class Peptide_News_Activator {
             'openrouter_api_key'   => '',
             'llm_keywords_model'   => 'google/gemini-2.0-flash-001',
             'llm_summary_model'    => 'google/gemini-2.0-flash-001',
+            'llm_max_articles'     => 10,
         );
 
         foreach ( $defaults as $key => $value ) {
