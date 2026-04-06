@@ -130,13 +130,14 @@ class Peptide_News_Public {
                             </a>
                         </h3>
 
-                        <p class="pn-article-excerpt">
-                            <?php
-                            // Prefer AI summary over raw excerpt.
-                            $display_text = ! empty( $article->ai_summary ) ? $article->ai_summary : $article->excerpt;
-                            echo esc_html( $display_text );
-                            ?>
-                        </p>
+                        <?php
+                        // Prefer AI summary over raw excerpt.
+                        $display_text = ! empty( $article->ai_summary ) ? $article->ai_summary : ( $article->excerpt ?? '' );
+                        if ( ! empty( $display_text ) ) : ?>
+                            <p class="pn-article-excerpt">
+                                <?php echo esc_html( $display_text ); ?>
+                            </p>
+                        <?php endif; ?>
 
                         <?php if ( ! empty( $article->author ) ) : ?>
                             <span class="pn-author">

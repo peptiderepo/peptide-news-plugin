@@ -121,6 +121,12 @@
     color: #0073aa;
 }
 
+.pn-article-title a:focus,
+.pn-article-thumb a:focus {
+    outline: 2px solid #0073aa;
+    outline-offset: 2px;
+}
+
 /* ── Excerpt / AI summary ──────────────────────────────────────── */
 .pn-article-excerpt {
     font-size: 0.875rem;
