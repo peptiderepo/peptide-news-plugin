@@ -1,0 +1,76 @@
+name: Deploy to WordPress
+
+on:
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+# Cancel previous deploys if a new push arrives while one is running.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: true
+
+jobs:
+  # ── Run tests first ──────────────────────────────────────────────
+  test:
+    name: Pre-deploy tests
+    uses: ./.github/workflows/ci.yml
+
+  # ── Deploy via SFTP ──────────────────────────────────────────────
+  deploy:
+    name: Deploy to Hostinger
+    runs-on: ubuntu-latest
+    needs: test  # Only deploy if all CI checks pass
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy plugin files via SFTP
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server:   ${{ secrets.SFTP_HOST }}
+          username: ${{ secrets.SFTP_USER }}
+          password: ${{ secrets.SFTP_PASS }}
+          port:     ${{ secrets.SFTP_PORT || 22 }}
+          protocol: ftps
+          local-dir:  ./
+          server-dir: ${{ secrets.WP_PLUGIN_PATH }}
+          exclude: |
+            **/.git*
+            **/.git*/**
+            .github/**
+            tests/**
+            vendor/**
+            node_modules/**
+            composer.json
+            composer.lock
+            phpunit.xml.dist
+            .phpcs.xml.dist
+            peptide-news-plugin/**
+            README.md
+            .editorconfig
+
+      - name: Purge LiteSpeed Cache
+        if: success()
+        run: |
+          # Trigger a cache purge via the WordPress REST API.
+          # This requires an Application Password set up in WordPress.
+          if [ -n "${{ secrets.WP_APP_PASSWORD }}" ]; then
+            curl -s -X POST \
+              -u "${{ secrets.WP_ADMIN_USER }}:${{ secrets.WP_APP_PASSWORD }}" \
+              "${{ secrets.WP_SITE_URL }}/wp-json/peptide-news/v1/cache-purge" \
+              --max-time 15 || echo "Cache purge skipped (endpoint not available)"
+          else
+            echo "No WP_APP_PASSWORD set — skipping remote cache purge."
+            echo "Remember to purge LiteSpeed Cache manually after deploy."
+          fi
+
+      - name: Deploy summary
+        run: |
+          echo "## Deployment Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch:** \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Deployed to:** ${{ secrets.WP_SITE_URL || 'peptiderepo.com' }}" >> $GITHUB_STEP_SUMMARY
