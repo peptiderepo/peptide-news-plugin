@@ -772,45 +772,64 @@ class Peptide_News_Fetcher {
     }
 
     /**
-     * Decode a Google News RSS article URL to extract the actual publisher URL.
-     *
-     * Google News RSS URLs encode the real article URL in a base64 protobuf
-     * payload in the path: /rss/articles/CBMi<base64>...
+     * Resolve a Google News article URL to the actual publisher URL
+     * using Google's internal batchexecute API.
      *
      * @param string $url Google News article URL.
-     * @return string|false The decoded article URL, or false on failure.
+     * @return string|false The resolved article URL, or false on failure.
      */
     private function decode_google_news_url( $url ) {
-        // Extract the base64 segment from the URL path.
-        if ( ! preg_match( '#/articles/([A-Za-z0-9_-]+)#', $url, $matches ) ) {
+        // Extract the article ID from the URL path.
+        if ( ! preg_match( '#/(?:rss/)?articles/([A-Za-z0-9_-]+)#', $url, $matches ) ) {
             return false;
         }
 
-        $encoded = $matches[1];
+        $article_id = $matches[1];
 
-        // Google uses URL-safe base64 — convert to standard base64.
-        $encoded = str_replace( array( '-', '_' ), array( '+', '/' ), $encoded );
+        // Build the batchexecute request payload.
+        $inner_payload = json_encode( array(
+            'Fbv4je',
+            '[\"garturlreq\",[[\"en\",\"US\",[\"FINANCE_TOP_INDICES\",\"WEB_TEST_1_0_0\"],null,null,1,1,\"US:en\",null,180,null,null,null,null,null,0,null,null,[1608992183,723341000]],\"en\",\"US\",1,[2,3,4,8],1,1,\"648780909\",0,0,null,0],\"' . $article_id . '\"]',
+            'generic',
+        ) );
 
-        // Add padding if needed.
-        $remainder = strlen( $encoded ) % 4;
-        if ( $remainder ) {
-            $encoded .= str_repeat( '=', 4 - $remainder );
-        }
+        $body = 'f.req=' . urlencode( '[[' . $inner_payload . ']]' );
 
-        $decoded = base64_decode( $encoded, true );
-        if ( false === $decoded ) {
+        $response = wp_remote_post( 'https://news.google.com/_/DotsSplashUi/data/batchexecute', array(
+            'timeout'    => 10,
+            'user-agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'headers'    => array(
+                'Content-Type' => 'application/x-www-form-urlencoded;charset=UTF-8',
+                'Referer'      => 'https://news.google.com/',
+            ),
+            'body'       => $body,
+        ) );
+
+        if ( is_wp_error( $response ) ) {
             return false;
         }
 
-        // The decoded protobuf contains the URL as a string field.
-        // Extract any http(s) URL from the binary data.
-        if ( preg_match( '#(https?://[^\x00-\x1f\x7f-\x9f"<>\s]+)#', $decoded, $url_matches ) ) {
-            $article_url = $url_matches[1];
+        $response_body = wp_remote_retrieve_body( $response );
 
-            // Validate it's not another Google URL.
-            $article_domain = $this->extract_domain( $article_url );
-            if ( 'news.google.com' !== $article_domain && 'google.com' !== $article_domain ) {
-                return $article_url;
+        if ( empty( $response_body ) ) {
+            return false;
+        }
+
+        // The response is a multi-line format. The actual data is in the JSON payload.
+        // Extract URLs from the response — the real article URL appears in the JSON.
+        if ( preg_match_all( '#(https?://[^"\\\\]+)#', $response_body, $url_matches ) ) {
+            foreach ( $url_matches[1] as $candidate ) {
+                $candidate_domain = $this->extract_domain( $candidate );
+                // Skip Google's own domains.
+                if ( in_array( $candidate_domain, array( 'news.google.com', 'google.com', 'consent.google.com', 'accounts.google.com' ), true ) ) {
+                    continue;
+                }
+                // Skip common non-article URLs.
+                if ( strpos( $candidate, 'googleapis.com' ) !== false || strpos( $candidate, 'gstatic.com' ) !== false ) {
+                    continue;
+                }
+                // Found a non-Google URL — this is likely the article.
+                return esc_url_raw( $candidate );
             }
         }
 
