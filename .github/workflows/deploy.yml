@@ -5,7 +5,7 @@ on:
     branches: [ main ]
 
 permissions:
-  contents: read
+  contents: write
 
 # Cancel previous deploys if a new push arrives while one is running.
 concurrency:
@@ -18,31 +18,51 @@ jobs:
     name: Pre-deploy tests
     uses: ./.github/workflows/ci.yml
 
-  # ── Deploy via SSH/SCP ──────────────────────────────────────────
+  # ── Push clean plugin files to the deploy branch ─────────────────
+  # Hostinger's built-in GIT integration watches the `deploy` branch
+  # and auto-pulls via webhook when it changes.  This avoids the
+  # firewall issues with push-based SCP/FTP from GitHub Actions.
   deploy:
-    name: Deploy to Hostinger
+    name: Update deploy branch
     runs-on: ubuntu-latest
-    needs: test  # Only deploy if all CI checks pass
+    needs: test
     environment: production
     steps:
       - uses: actions/checkout@v4
-
-      - name: Deploy plugin files via SCP
-        uses: appleboy/scp-action@v0.1.7
         with:
-          host:     ${{ secrets.SFTP_HOST }}
-          username: ${{ secrets.SFTP_USER }}
-          password: ${{ secrets.SFTP_PASS }}
-          port:     ${{ secrets.SFTP_PORT }}
-          source: "admin/,includes/,languages/,public/,peptide-news-plugin.php"
-          target:   ${{ secrets.WP_PLUGIN_PATH }}
-          overwrite: true
+          fetch-depth: 0
+
+      - name: Build deploy branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Create a temporary orphan branch with only plugin files.
+          git checkout --orphan deploy-staging
+
+          # Remove everything from the index.
+          git rm -rf --cached . > /dev/null 2>&1 || true
+
+          # Stage only the plugin runtime files.
+          git add -f \
+            admin/ \
+            includes/ \
+            languages/ \
+            public/ \
+            peptide-news-plugin.php
+
+          git commit -m "Deploy ${GITHUB_SHA::7} from main"
+
+          # Force-push to the deploy branch (Hostinger webhook triggers auto-pull).
+          git push --force origin deploy-staging:deploy
 
       - name: Purge LiteSpeed Cache
         if: success()
         run: |
+          # Give Hostinger a moment to pull the new code.
+          sleep 10
+
           # Trigger a cache purge via the WordPress REST API.
-          # This requires an Application Password set up in WordPress.
           if [ -n "${{ secrets.WP_APP_PASSWORD }}" ]; then
             curl -s -X POST \
               -u "${{ secrets.WP_ADMIN_USER }}:${{ secrets.WP_APP_PASSWORD }}" \
@@ -50,7 +70,6 @@ jobs:
               --max-time 15 || echo "Cache purge skipped (endpoint not available)"
           else
             echo "No WP_APP_PASSWORD set — skipping remote cache purge."
-            echo "Remember to purge LiteSpeed Cache manually after deploy."
           fi
 
       - name: Deploy summary
@@ -58,5 +77,6 @@ jobs:
           echo "## Deployment Complete" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "- **Branch:** \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit:** \`${GITHUB_SHA::7}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Method:** Hostinger GIT auto-deploy (deploy branch)" >> $GITHUB_STEP_SUMMARY
           echo "- **Deployed to:** ${{ secrets.WP_SITE_URL || 'peptiderepo.com' }}" >> $GITHUB_STEP_SUMMARY
