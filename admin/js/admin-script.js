@@ -4,7 +4,12 @@
  * Initialises Chart.js charts using the data exported by dashboard.php
  * via the global `peptideNewsDashboardData` object.
  *
- * @since 1.1.0
+ * Chart.js with responsive:true + maintainAspectRatio:false requires
+ * the parent container to have an explicit height. The prepareCanvas()
+ * helper wraps each <canvas> in a height-constrained <div> so that
+ * charts render at a predictable, bounded size.
+ *
+ * @since 1.2.1
  */
 
 (function () {
@@ -35,10 +40,35 @@
         ]
     };
 
+    /**
+     * Wrap a canvas element in a height-constrained container.
+     *
+     * Chart.js sets canvas dimensions via JS, overriding CSS max-height.
+     * The only reliable way to constrain chart height is to give the
+     * *parent* element an explicit height.
+     *
+     * @param {string} id     Canvas element ID.
+     * @param {number} height Desired chart height in pixels.
+     * @return {HTMLCanvasElement|null} The canvas, or null if not found.
+     */
+    function prepareCanvas(id, height) {
+        var canvas = document.getElementById(id);
+        if (!canvas) {
+            return null;
+        }
+        var wrapper = document.createElement('div');
+        wrapper.style.position = 'relative';
+        wrapper.style.height   = height + 'px';
+        wrapper.style.width    = '100%';
+        canvas.parentNode.insertBefore(wrapper, canvas);
+        wrapper.appendChild(canvas);
+        return canvas;
+    }
+
     /* ── 1. Click Trends — Line Chart ── */
-    var trendsCanvas = document.getElementById('pn-trends-chart');
+    var trendsCanvas = prepareCanvas('pn-trends-chart', 300);
     if (trendsCanvas && data.trends) {
-        var trendsLabels = data.trends.map(function (row) { return row.click_date; });
+        var trendsLabels = data.trends.map(function (row) { return row.click_date || row.stat_date; });
         var trendsClicks = data.trends.map(function (row) { return parseInt(row.total_clicks, 10) || 0; });
         var trendsUnique = data.trends.map(function (row) { return parseInt(row.total_unique, 10) || 0; });
 
@@ -99,7 +129,7 @@
     }
 
     /* ── 2. Device Breakdown — Doughnut Chart ── */
-    var devicesCanvas = document.getElementById('pn-devices-chart');
+    var devicesCanvas = prepareCanvas('pn-devices-chart', 250);
     if (devicesCanvas && data.devices) {
         var deviceLabels = data.devices.map(function (row) { return row.device_type || 'Unknown'; });
         var deviceCounts = data.devices.map(function (row) { return parseInt(row.click_count, 10) || 0; });
@@ -130,10 +160,10 @@
     }
 
     /* ── 3. Source Performance — Bar Chart ── */
-    var sourcesCanvas = document.getElementById('pn-sources-chart');
+    var sourcesCanvas = prepareCanvas('pn-sources-chart', 250);
     if (sourcesCanvas && data.sources) {
         var sourceLabels = data.sources.map(function (row) { return row.source || 'Unknown'; });
-        var sourceCounts = data.sources.map(function (row) { return parseInt(row.click_count, 10) || 0; });
+        var sourceCounts = data.sources.map(function (row) { return parseInt(row.click_count || row.total_clicks, 10) || 0; });
 
         new Chart(sourcesCanvas, {
             type: 'bar',
