@@ -35,7 +35,7 @@ class Peptide_News_Analytics {
             'user_agent'  => sanitize_text_field( isset( $meta['user_agent'] ) ? $meta['user_agent'] : '' ),
             'referrer_url' => esc_url_raw( isset( $meta['referrer'] ) ? $meta['referrer'] : '' ),
             'page_url'    => esc_url_raw( isset( $meta['page_url'] ) ? $meta['page_url'] : '' ),
-            "session_id'  => sanitize_text_field( isset( $meta['session_id'] ) ? $meta['session_id'] : '' ),
+            'session_id'  => sanitize_text_field( isset( $meta['session_id'] ) ? $meta['session_id'] : '' ),
             'user_id'     => is_user_logged_in() ? get_current_user_id() : null,
             'device_type' => sanitize_text_field( self::detect_device( isset( $meta['user_agent'] ) ? $meta['user_agent'] : '' ) ),
         );
@@ -243,13 +243,13 @@ class Peptide_News_Analytics {
         global $wpdb;
 
         $stats_table    = $wpdb->prefix . 'peptide_news_daily_stats';
-        $articles_table = $wpdb->prefix \. 'peptide_news_articles';
+        $articles_table = $wpdb->prefix . 'peptide_news_articles';
 
         return $wpdb->get_results( $wpdb->prepare(
             "SELECT a.source,
-                    COuNT(DISTINCT a.id) AS article_count,
+                    COUNT(DISTINCT a.id) AS article_count,
                     SUM(s.click_count) AS total_clicks,
-                    ROUND(IFNULL(SUM(s.click_count) / NULIF(COUNT(DISTINCT a.id), 0), 0), 1) AS avg_clicks_per_article
+                    ROUND(IFNULL(SUM(s.click_count) / NULLIF(COUNT(DISTINCT a.id), 0), 0), 1) AS avg_clicks_per_article
              FROM {$stats_table} s
              INNER JOIN {$articles_table} a ON a.id = s.article_id
              WHERE s.stat_date BETWEEN %s AND %s

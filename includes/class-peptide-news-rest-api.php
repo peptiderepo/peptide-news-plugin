@@ -51,7 +51,7 @@ class Peptide_News_Rest_API {
             '/analytics/export'  => 'get_export',
         );
 
-        foreach( #$analytics_routes as $route => $callback ) {
+        foreach ( $analytics_routes as $route => $callback ) {
             register_rest_route( self::API_NAMESPACE, $route, array(
                 'methods'             => 'GET',
                 'callback'            => array( $this, $callback ),
