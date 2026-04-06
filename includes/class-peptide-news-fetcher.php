@@ -748,57 +748,73 @@ class Peptide_News_Fetcher {
         }
 
         $domain = $this->extract_domain( $url );
-        $aggregators = array( 'news.google.com', 'news.yahoo.com', 'msn.com' );
 
+        // Google News: decode the actual article URL from the base64 payload.
+        if ( 'news.google.com' === $domain ) {
+            $decoded = $this->decode_google_news_url( $url );
+            if ( $decoded ) {
+                return $decoded;
+            }
+        }
+
+        $aggregators = array( 'news.yahoo.com', 'msn.com' );
         if ( ! in_array( $domain, $aggregators, true ) ) {
             return $url;
         }
 
-        // Google News URLs need a full GET request — HEAD often doesn't resolve.
-        $response = wp_remote_get( $url, array(
-            'timeout'             => 15,
-            'redirection'         => 10,
-            'user-agent'          => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'headers'             => array( 'Accept' => 'text/html,application/xhtml+xml' ),
-            'limit_response_size' => 200000,
-        ) );
-
-        if ( is_wp_error( $response ) ) {
-            return $url;
-        }
-
-        // Check if WordPress followed redirects and landed on a different URL.
-        if ( isset( $response['http_response'] ) ) {
-            $http_response = $response['http_response'];
-            if ( method_exists( $http_response, 'get_response_object' ) ) {
-                $raw = $http_response->get_response_object();
-                if ( isset( $raw->url ) && $raw->url !== $url ) {
-                    return $raw->url;
-                }
-            }
-        }
-
-        // Check for meta refresh or JavaScript redirects in the HTML body.
-        $body = wp_remote_retrieve_body( $response );
-        if ( ! empty( $body ) ) {
-            // Meta refresh: <meta http-equiv="refresh" content="0;url=...">
-            if ( preg_match( '/<meta[^>]+http-equiv=["\']refresh["\'][^>]+content=["\'][^"\']*url=([^"\'>\s]+)/is', $body, $matches ) ) {
-                $redirect_url = trim( $matches[1] );
-                if ( filter_var( $redirect_url, FILTER_VALIDATE_URL ) ) {
-                    return $redirect_url;
-                }
-            }
-
-            // JavaScript redirect: window.location = "..." or location.href = "..."
-            if ( preg_match( '/(?:window\.)?location(?:\.href)?\s*=\s*["\']([^"\']+)["\']/i', $body, $matches ) ) {
-                $redirect_url = trim( $matches[1] );
-                if ( filter_var( $redirect_url, FILTER_VALIDATE_URL ) ) {
-                    return $redirect_url;
-                }
-            }
+        // For other aggregators, try HTTP redirect resolution.
+        $resolved = $this->resolve_redirect_url( $url );
+        if ( $resolved && $resolved !== $url ) {
+            return $resolved;
         }
 
         return $url;
+    }
+
+    /**
+     * Decode a Google News RSS article URL to extract the actual publisher URL.
+     *
+     * Google News RSS URLs encode the real article URL in a base64 protobuf
+     * payload in the path: /rss/articles/CBMi<base64>...
+     *
+     * @param string $url Google News article URL.
+     * @return string|false The decoded article URL, or false on failure.
+     */
+    private function decode_google_news_url( $url ) {
+        // Extract the base64 segment from the URL path.
+        if ( ! preg_match( '#/articles/([A-Za-z0-9_-]+)#', $url, $matches ) ) {
+            return false;
+        }
+
+        $encoded = $matches[1];
+
+        // Google uses URL-safe base64 — convert to standard base64.
+        $encoded = str_replace( array( '-', '_' ), array( '+', '/' ), $encoded );
+
+        // Add padding if needed.
+        $remainder = strlen( $encoded ) % 4;
+        if ( $remainder ) {
+            $encoded .= str_repeat( '=', 4 - $remainder );
+        }
+
+        $decoded = base64_decode( $encoded, true );
+        if ( false === $decoded ) {
+            return false;
+        }
+
+        // The decoded protobuf contains the URL as a string field.
+        // Extract any http(s) URL from the binary data.
+        if ( preg_match( '#(https?://[^\x00-\x1f\x7f-\x9f"<>\s]+)#', $decoded, $url_matches ) ) {
+            $article_url = $url_matches[1];
+
+            // Validate it's not another Google URL.
+            $article_domain = $this->extract_domain( $article_url );
+            if ( 'news.google.com' !== $article_domain && 'google.com' !== $article_domain ) {
+                return $article_url;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -879,8 +895,116 @@ class Peptide_News_Fetcher {
             wp_send_json_error( 'Unauthorized', 403 );
         }
 
-        $updated = $this->backfill_article_thumbnails();
-        wp_send_json_success( array( 'updated' => $updated ) );
+        // Run in diagnostic mode to help debug.
+        $result = $this->backfill_article_thumbnails_debug();
+        wp_send_json_success( $result );
+    }
+
+    /**
+     * Debug version of thumbnail backfill that returns diagnostic info.
+     *
+     * @return array Diagnostic data.
+     */
+    private function backfill_article_thumbnails_debug() {
+        global $wpdb;
+
+        $table    = $wpdb->prefix . 'peptide_news_articles';
+        $articles = $wpdb->get_results(
+            "SELECT id, source_url, title, thumbnail_url, thumbnail_local
+             FROM {$table}
+             WHERE is_active = 1
+               AND ( thumbnail_url = '' OR thumbnail_url IS NULL )
+               AND ( thumbnail_local = '' OR thumbnail_local IS NULL )
+             ORDER BY fetched_at DESC
+             LIMIT 10"
+        );
+
+        $debug = array(
+            'query_count' => count( $articles ),
+            'samples'     => array(),
+            'updated'     => 0,
+        );
+
+        if ( empty( $articles ) ) {
+            // Check if all articles have thumbnails set already.
+            $total = $wpdb->get_var( "SELECT COUNT(*) FROM {$table} WHERE is_active = 1" );
+            $with_thumb = $wpdb->get_var(
+                "SELECT COUNT(*) FROM {$table} WHERE is_active = 1 AND thumbnail_url != '' AND thumbnail_url IS NOT NULL"
+            );
+            $with_local = $wpdb->get_var(
+                "SELECT COUNT(*) FROM {$table} WHERE is_active = 1 AND thumbnail_local != '' AND thumbnail_local IS NOT NULL"
+            );
+            $debug['total_active']    = (int) $total;
+            $debug['with_thumb_url']  = (int) $with_thumb;
+            $debug['with_thumb_local'] = (int) $with_local;
+
+            // Sample a few articles to see what their thumbnail fields look like.
+            $samples = $wpdb->get_results(
+                "SELECT id, LEFT(source_url, 80) as url_prefix, LEFT(thumbnail_url, 80) as thumb_url, LEFT(thumbnail_local, 80) as thumb_local
+                 FROM {$table} WHERE is_active = 1 LIMIT 5"
+            );
+            $debug['field_samples'] = $samples;
+
+            return $debug;
+        }
+
+        foreach ( $articles as $article ) {
+            $sample = array(
+                'id'          => $article->id,
+                'url_prefix'  => substr( $article->source_url, 0, 80 ),
+                'thumb_url'   => $article->thumbnail_url,
+                'thumb_local' => $article->thumbnail_local,
+            );
+
+            $scrape_url = $this->resolve_scrape_url( $article->source_url );
+            $sample['resolved_url'] = substr( $scrape_url, 0, 120 );
+            $sample['url_changed']  = ( $scrape_url !== $article->source_url );
+
+            $image_url = $this->scrape_og_image( $scrape_url );
+            $sample['og_image'] = $image_url ? substr( $image_url, 0, 120 ) : '(none)';
+
+            if ( ! empty( $image_url ) ) {
+                $local_path = $this->download_thumbnail( $image_url, $article->id, $article->title );
+                $sample['local_path'] = $local_path ?: '(download failed)';
+
+                if ( $local_path ) {
+                    $wpdb->update(
+                        $table,
+                        array(
+                            'thumbnail_url'   => $image_url,
+                            'thumbnail_local' => $local_path,
+                        ),
+                        array( 'id' => $article->id ),
+                        array( '%s', '%s' ),
+                        array( '%d' )
+                    );
+                } else {
+                    $wpdb->update(
+                        $table,
+                        array( 'thumbnail_url' => $image_url ),
+                        array( 'id' => $article->id ),
+                        array( '%s' ),
+                        array( '%d' )
+                    );
+                }
+                $debug['updated']++;
+            }
+
+            $debug['samples'][] = $sample;
+
+            usleep( 500000 );
+
+            // Only process 5 samples in debug mode.
+            if ( count( $debug['samples'] ) >= 5 ) {
+                break;
+            }
+        }
+
+        if ( $debug['updated'] > 0 ) {
+            $this->clear_article_cache();
+        }
+
+        return $debug;
     }
 
     /**
