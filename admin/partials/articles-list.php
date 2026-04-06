@@ -73,8 +73,16 @@ $total_pages = ceil( $total / $per_page );
                         <td><?php echo esc_html( wp_date( 'M j, Y', strtotime( $article->published_at ) ) ); ?></td>
                         <td><?php echo esc_html( wp_date( 'M j, Y', strtotime( $article->fetched_at ) ) ); ?></td>
                         <td>
-                            <?php if ( ! empty( $article->thumbnail_url ) ) : ?>
-                                <img src="<?php echo esc_url( $article->thumbnail_url ); ?>" alt="" style="width:50px;height:50px;object-fit:cover;border-radius:4px;" />
+                            <?php
+                            $thumb_src = '';
+                            if ( ! empty( $article->thumbnail_url ) && '_no_image' !== $article->thumbnail_url ) {
+                                $thumb_src = $article->thumbnail_url;
+                            } elseif ( ! empty( $article->thumbnail_local ) ) {
+                                $upload_dir = wp_upload_dir();
+                                $thumb_src = $upload_dir['baseurl'] . '/' . $article->thumbnail_local;
+                            }
+                            if ( $thumb_src ) : ?>
+                                <img src="<?php echo esc_url( $thumb_src ); ?>" alt="" style="width:50px;height:50px;object-fit:cover;border-radius:4px;" />
                             <?php else : ?>
                                 <span class="dashicons dashicons-format-image" style="color:#ccc;font-size:24px;"></span>
                             <?php endif; ?>

@@ -36,6 +36,7 @@ class Peptide_News_Activator {
             content LONGTEXT NOT NULL,
             author VARCHAR(255) NOT NULL DEFAULT '',
             thumbnail_url VARCHAR(2048) NOT NULL DEFAULT '',
+            thumbnail_local VARCHAR(512) NOT NULL DEFAULT '',
             published_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             fetched_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             categories VARCHAR(500) NOT NULL DEFAULT '',

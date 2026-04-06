@@ -390,12 +390,12 @@ class Peptide_News_LLM {
         global $wpdb;
         $table = $wpdb->prefix . 'peptide_news_articles';
 
-        // Find active articles with no thumbnail (neither URL nor local).
+        // Find active articles with no usable thumbnail (including _no_image sentinel).
         $articles = $wpdb->get_results( $wpdb->prepare(
             "SELECT id, title, excerpt, ai_summary, tags, categories
              FROM {$table}
              WHERE is_active = 1
-               AND ( thumbnail_url = '' OR thumbnail_url IS NULL )
+               AND ( thumbnail_url = '' OR thumbnail_url IS NULL OR thumbnail_url = '_no_image' )
                AND ( thumbnail_local = '' OR thumbnail_local IS NULL )
              ORDER BY fetched_at DESC
              LIMIT %d",

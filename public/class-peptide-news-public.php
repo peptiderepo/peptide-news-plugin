@@ -95,9 +95,16 @@ class Peptide_News_Public {
         ?>
         <div class="pn-news-feed pn-layout-<?php echo esc_attr( $layout ); ?>">
             <?php foreach ( $articles as $article ) :
-                $thumb = ( ! empty( $article->thumbnail_url ) && '_no_image' !== $article->thumbnail_url )
-                    ? $article->thumbnail_url
-                    : $fallback_thumb;
+                $thumb = '';
+                if ( ! empty( $article->thumbnail_url ) && '_no_image' !== $article->thumbnail_url ) {
+                    $thumb = $article->thumbnail_url;
+                } elseif ( ! empty( $article->thumbnail_local ) ) {
+                    $upload_dir = wp_upload_dir();
+                    $thumb = $upload_dir['baseurl'] . '/' . $article->thumbnail_local;
+                }
+                if ( empty( $thumb ) ) {
+                    $thumb = $fallback_thumb;
+                }
                 $date  = wp_date( 'M j, Y', strtotime( $article->published_at ) );
             ?>
                 <article class="pn-article" data-article-id="<?php echo esc_attr( $article->id ); ?>">
@@ -228,7 +235,7 @@ class Peptide_News_Public {
 
         $articles = $wpdb->get_results( $wpdb->prepare(
             "SELECT id, source, source_url, title, excerpt, ai_summary, author, thumbnail_url,
-                    published_at, categories, tags
+                    thumbnail_local, published_at, categories, tags
              FROM {$table}
              WHERE is_active = 1
              ORDER BY published_at DESC

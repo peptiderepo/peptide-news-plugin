@@ -328,11 +328,27 @@ class Peptide_News_Fetcher {
             return 0;
         }
 
-        $updated = 0;
+        $aggregators = array( 'news.google.com', 'news.yahoo.com', 'msn.com' );
+        $updated     = 0;
 
         foreach ( $articles as $article ) {
-            $scrape_url = $this->resolve_article_for_scraping( $article->source_url, $article->title, $article->source );
-            $image_url  = $this->scrape_og_image( $scrape_url );
+            $domain = $this->extract_domain( $article->source_url );
+
+            // Skip aggregator URLs — they can't be scraped for OG images.
+            // These will be handled by AI image generation instead.
+            if ( in_array( $domain, $aggregators, true ) ) {
+                $wpdb->update(
+                    $table,
+                    array( 'thumbnail_url' => '_no_image' ),
+                    array( 'id' => $article->id ),
+                    array( '%s' ),
+                    array( '%d' )
+                );
+                continue;
+            }
+
+            // Direct OG scrape for non-aggregator URLs.
+            $image_url = $this->scrape_og_image( $article->source_url );
 
             if ( ! empty( $image_url ) ) {
                 $local_path = $this->download_thumbnail( $image_url, $article->id, $article->title );
@@ -345,7 +361,6 @@ class Peptide_News_Fetcher {
                 $wpdb->update( $table, $update_data, array( 'id' => $article->id ) );
                 $updated++;
             } else {
-                // Mark as attempted so we don't retry on every cron cycle.
                 $wpdb->update(
                     $table,
                     array( 'thumbnail_url' => '_no_image' ),
@@ -355,7 +370,6 @@ class Peptide_News_Fetcher {
                 );
             }
 
-            // Throttle: 0.3s for direct scrapes, search adds its own delay.
             usleep( 300000 );
         }
 
@@ -364,52 +378,6 @@ class Peptide_News_Fetcher {
         }
 
         return $updated;
-    }
-
-    /**
-     * Resolve an article URL to a scrapeable page.
-     *
-     * For Google News and other aggregators, tries redirect resolution first,
-     * then falls back to search-based lookup using article title and publisher.
-     *
-     * @param string $source_url  The stored article URL.
-     * @param string $title       The article title.
-     * @param string $source_name The publisher name.
-     * @return string URL suitable for OG image scraping.
-     */
-    private function resolve_article_for_scraping( $source_url, $title, $source_name ) {
-        if ( empty( $source_url ) ) {
-            return $source_url;
-        }
-
-        $domain = $this->extract_domain( $source_url );
-
-        // Non-aggregator URLs can be scraped directly.
-        $aggregators = array( 'news.google.com', 'news.yahoo.com', 'msn.com' );
-        if ( ! in_array( $domain, $aggregators, true ) ) {
-            return $source_url;
-        }
-
-        // Try HTTP redirect resolution first (works for Yahoo, MSN).
-        $resolved = $this->resolve_redirect_url( $source_url );
-        if ( $resolved && $resolved !== $source_url ) {
-            $resolved_domain = $this->extract_domain( $resolved );
-            if ( ! in_array( $resolved_domain, $aggregators, true ) ) {
-                return $resolved;
-            }
-        }
-
-        // For Google News: search for the actual article URL.
-        if ( 'news.google.com' === $domain ) {
-            $search_result = $this->find_article_url_via_search( $title, $source_name );
-            if ( $search_result ) {
-                // Throttle between search requests.
-                usleep( 1500000 ); // 1.5s
-                return $search_result;
-            }
-        }
-
-        return $source_url;
     }
 
     /**
@@ -770,142 +738,20 @@ class Peptide_News_Fetcher {
 
 
     /**
-     * Find the actual article URL via DuckDuckGo search.
-     *
-     * Google News RSS stores encrypted article URLs that cannot be resolved
-     * server-side. This method uses the article title and publisher name
-     * to find the real article page via search engine lookup.
-     *
-     * @param string $title       The article title (may include " - Source" suffix).
-     * @param string $source_name The publisher name (e.g., "STAT News").
-     * @return string|false The actual article URL, or false on failure.
-     */
-    private function find_article_url_via_search( $title, $source_name = '' ) {
-        // Strip " - Source" suffix from title if present.
-        $clean_title = preg_replace( '/\s[-\x{2013}\x{2014}]\s[^-\x{2013}\x{2014}]+$/u', '', $title );
-        $clean_title = trim( $clean_title );
-
-        if ( empty( $clean_title ) || mb_strlen( $clean_title ) < 10 ) {
-            return false;
-        }
-
-        // Build search query with quoted title for exact match + source name.
-        $query = '"' . $clean_title . '"';
-        if ( ! empty( $source_name ) ) {
-            $query .= ' ' . $source_name;
-        }
-
-        $search_url = 'https://html.duckduckgo.com/html/?q=' . urlencode( $query );
-
-        $response = wp_remote_get( $search_url, array(
-            'timeout'    => 12,
-            'user-agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'headers'    => array(
-                'Accept'          => 'text/html,application/xhtml+xml',
-                'Accept-Language' => 'en-US,en;q=0.9',
-            ),
-        ) );
-
-        if ( is_wp_error( $response ) ) {
-            $this->log_error( 'Search lookup failed: ' . $response->get_error_message() );
-            return false;
-        }
-
-        $status = wp_remote_retrieve_response_code( $response );
-        if ( $status < 200 || $status >= 400 ) {
-            return false;
-        }
-
-        $body = wp_remote_retrieve_body( $response );
-        if ( empty( $body ) ) {
-            return false;
-        }
-
-        // Domains to skip in search results.
-        $skip_domains = array(
-            'news.google.com', 'google.com', 'duckduckgo.com', 'bing.com',
-            'yahoo.com', 'msn.com', 'youtube.com', 'facebook.com', 'twitter.com',
-        );
-
-        // DuckDuckGo HTML results: links with class "result__a" or redirect URLs with uddg param.
-        if ( preg_match_all( '/class=["\']result__a["\'][^>]*href=["\']([^"\']+)["\']/i', $body, $matches ) ) {
-            foreach ( $matches[1] as $href ) {
-                $actual_url = $this->extract_ddg_url( $href );
-                if ( ! $actual_url ) {
-                    continue;
-                }
-
-                $domain = $this->extract_domain( $actual_url );
-                if ( in_array( $domain, $skip_domains, true ) ) {
-                    continue;
-                }
-
-                return esc_url_raw( $actual_url );
-            }
-        }
-
-        // Fallback: look for uddg-encoded redirect links anywhere.
-        if ( preg_match_all( '/uddg=([^&"\'>\s]+)/i', $body, $matches ) ) {
-            foreach ( $matches[1] as $encoded_url ) {
-                $actual_url = urldecode( $encoded_url );
-                if ( ! filter_var( $actual_url, FILTER_VALIDATE_URL ) ) {
-                    continue;
-                }
-                $domain = $this->extract_domain( $actual_url );
-                if ( ! in_array( $domain, $skip_domains, true ) ) {
-                    return esc_url_raw( $actual_url );
-                }
-            }
-        }
-
-        return false;
-    }
-
-    /**
-     * Extract the actual URL from a DuckDuckGo redirect link.
-     *
-     * DuckDuckGo HTML results use redirect URLs with the actual URL
-     * encoded in the 'uddg' query parameter.
-     *
-     * @param string $href The DuckDuckGo result href.
-     * @return string|false The actual URL or false.
-     */
-    private function extract_ddg_url( $href ) {
-        $href = html_entity_decode( $href );
-
-        // Direct URL (no redirect wrapper).
-        if ( strpos( $href, 'duckduckgo.com' ) === false && filter_var( $href, FILTER_VALIDATE_URL ) ) {
-            return $href;
-        }
-
-        // Extract from redirect: //duckduckgo.com/l/?uddg=<encoded_url>&...
-        if ( strpos( $href, 'uddg=' ) !== false ) {
-            $query_string = wp_parse_url( $href, PHP_URL_QUERY );
-            if ( $query_string ) {
-                parse_str( $query_string, $params );
-                if ( ! empty( $params['uddg'] ) && filter_var( $params['uddg'], FILTER_VALIDATE_URL ) ) {
-                    return $params['uddg'];
-                }
-            }
-        }
-
-        return false;
-    }
-
-    /**
      * Backfill thumbnails for existing articles that have none.
      *
-     * Re-runs OG scraping with search-based URL resolution for articles
-     * missing thumbnails. Also retries articles previously marked '_no_image'.
+     * Attempts OG scraping for non-aggregator URLs, then uses AI image
+     * generation for any remaining articles without thumbnails.
      *
-     * @return array Summary with 'updated' count and 'samples' for diagnostics.
+     * @return array Summary with counts and diagnostic samples.
      */
     public function backfill_article_thumbnails() {
         global $wpdb;
 
-        $table = $wpdb->prefix . 'peptide_news_articles';
+        $table       = $wpdb->prefix . 'peptide_news_articles';
+        $aggregators = array( 'news.google.com', 'news.yahoo.com', 'msn.com' );
 
-        // Reset '_no_image' sentinel on previously failed articles so we retry them.
+        // Reset sentinels so we retry everything.
         $wpdb->query(
             "UPDATE {$table}
              SET thumbnail_url = ''
@@ -914,70 +760,83 @@ class Peptide_News_Fetcher {
         );
 
         $articles = $wpdb->get_results(
-            "SELECT id, source, source_url, title
+            "SELECT id, source, source_url, title, excerpt, ai_summary, tags, categories
              FROM {$table}
              WHERE is_active = 1
                AND ( thumbnail_url = '' OR thumbnail_url IS NULL )
+               AND ( thumbnail_local = '' OR thumbnail_local IS NULL )
              ORDER BY fetched_at DESC
              LIMIT 20"
         );
 
         $result = array(
-            'total'   => count( $articles ),
-            'updated' => 0,
-            'failed'  => 0,
-            'samples' => array(),
+            'total'     => count( $articles ),
+            'scraped'   => 0,
+            'generated' => 0,
+            'failed'    => 0,
+            'samples'   => array(),
         );
 
         if ( empty( $articles ) ) {
             return $result;
         }
 
+        // Phase 1: OG scrape non-aggregator URLs.
         foreach ( $articles as $article ) {
-            $sample = array(
-                'id'    => $article->id,
-                'title' => mb_substr( $article->title, 0, 60 ),
-            );
+            $domain = $this->extract_domain( $article->source_url );
+            if ( in_array( $domain, $aggregators, true ) ) {
+                continue; // Skip — will be handled by AI generation.
+            }
 
-            $scrape_url = $this->resolve_article_for_scraping( $article->source_url, $article->title, $article->source );
-            $sample['resolved'] = ( $scrape_url !== $article->source_url );
-            $sample['scrape_url'] = mb_substr( $scrape_url, 0, 100 );
-
-            $image_url = $this->scrape_og_image( $scrape_url );
-
+            $image_url = $this->scrape_og_image( $article->source_url );
             if ( ! empty( $image_url ) ) {
-                $local_path = $this->download_thumbnail( $image_url, $article->id, $article->title );
-
+                $local_path  = $this->download_thumbnail( $image_url, $article->id, $article->title );
                 $update_data = array( 'thumbnail_url' => $image_url );
                 if ( $local_path ) {
                     $update_data['thumbnail_local'] = $local_path;
                 }
-
                 $wpdb->update( $table, $update_data, array( 'id' => $article->id ) );
-                $result['updated']++;
-                $sample['status'] = 'ok';
-                $sample['image']  = mb_substr( $image_url, 0, 80 );
-            } else {
-                $wpdb->update(
-                    $table,
-                    array( 'thumbnail_url' => '_no_image' ),
-                    array( 'id' => $article->id ),
-                    array( '%s' ),
-                    array( '%d' )
-                );
-                $result['failed']++;
-                $sample['status'] = 'no_image';
+                $result['scraped']++;
+
+                if ( count( $result['samples'] ) < 5 ) {
+                    $result['samples'][] = array(
+                        'id'     => $article->id,
+                        'title'  => mb_substr( $article->title, 0, 60 ),
+                        'method' => 'og_scrape',
+                        'status' => 'ok',
+                    );
+                }
             }
 
-            // Only include first 5 samples in diagnostics.
-            if ( count( $result['samples'] ) < 5 ) {
-                $result['samples'][] = $sample;
-            }
-
-            usleep( 500000 );
+            usleep( 300000 );
         }
 
-        if ( $result['updated'] > 0 ) {
+        // Phase 2: AI generation for articles still missing thumbnails.
+        if ( class_exists( 'Peptide_News_LLM' ) && Peptide_News_LLM::is_enabled() ) {
+            $ai_generated = Peptide_News_LLM::generate_missing_thumbnails( 20 );
+            $result['generated'] = $ai_generated;
+        }
+
+        // Count remaining failures.
+        $still_missing = $wpdb->get_var(
+            "SELECT COUNT(*)
+             FROM {$table}
+             WHERE is_active = 1
+               AND ( thumbnail_url = '' OR thumbnail_url IS NULL )
+               AND ( thumbnail_local = '' OR thumbnail_local IS NULL )"
+        );
+        $result['failed'] = (int) $still_missing;
+
+        // Mark remaining as '_no_image' so cron doesn't retry every cycle.
+        $wpdb->query(
+            "UPDATE {$table}
+             SET thumbnail_url = '_no_image'
+             WHERE is_active = 1
+               AND ( thumbnail_url = '' OR thumbnail_url IS NULL )
+               AND ( thumbnail_local = '' OR thumbnail_local IS NULL )"
+        );
+
+        if ( $result['scraped'] > 0 || $result['generated'] > 0 ) {
             $this->clear_article_cache();
         }
 
