@@ -332,7 +332,9 @@ class Peptide_News_Fetcher {
         $updated = 0;
 
         foreach ( $articles as $article ) {
-            $image_url = $this->scrape_og_image( $article->source_url );
+            // Resolve redirect URLs (e.g. Google News) to the actual article page.
+            $scrape_url = $this->resolve_scrape_url( $article->source_url );
+            $image_url  = $this->scrape_og_image( $scrape_url );
 
             if ( ! empty( $image_url ) ) {
                 // Download and store the image locally for reliability.
@@ -728,6 +730,157 @@ class Peptide_News_Fetcher {
         }
 
         return ! empty( $final_url ) ? $final_url : false;
+    }
+
+    /**
+     * Resolve a URL to a scrapeable destination.
+     *
+     * For aggregator redirect URLs (Google News, Yahoo News, etc.),
+     * follows redirects to reach the actual publisher page where
+     * og:image tags can be found.
+     *
+     * @param string $url The stored article URL.
+     * @return string The resolved URL suitable for OG scraping.
+     */
+    private function resolve_scrape_url( $url ) {
+        if ( empty( $url ) ) {
+            return $url;
+        }
+
+        $domain = $this->extract_domain( $url );
+        $aggregators = array( 'news.google.com', 'news.yahoo.com', 'msn.com' );
+
+        if ( ! in_array( $domain, $aggregators, true ) ) {
+            return $url;
+        }
+
+        // Google News URLs need a full GET request — HEAD often doesn't resolve.
+        $response = wp_remote_get( $url, array(
+            'timeout'             => 15,
+            'redirection'         => 10,
+            'user-agent'          => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'headers'             => array( 'Accept' => 'text/html,application/xhtml+xml' ),
+            'limit_response_size' => 200000,
+        ) );
+
+        if ( is_wp_error( $response ) ) {
+            return $url;
+        }
+
+        // Check if WordPress followed redirects and landed on a different URL.
+        if ( isset( $response['http_response'] ) ) {
+            $http_response = $response['http_response'];
+            if ( method_exists( $http_response, 'get_response_object' ) ) {
+                $raw = $http_response->get_response_object();
+                if ( isset( $raw->url ) && $raw->url !== $url ) {
+                    return $raw->url;
+                }
+            }
+        }
+
+        // Check for meta refresh or JavaScript redirects in the HTML body.
+        $body = wp_remote_retrieve_body( $response );
+        if ( ! empty( $body ) ) {
+            // Meta refresh: <meta http-equiv="refresh" content="0;url=...">
+            if ( preg_match( '/<meta[^>]+http-equiv=["\']refresh["\'][^>]+content=["\'][^"\']*url=([^"\'>\s]+)/is', $body, $matches ) ) {
+                $redirect_url = trim( $matches[1] );
+                if ( filter_var( $redirect_url, FILTER_VALIDATE_URL ) ) {
+                    return $redirect_url;
+                }
+            }
+
+            // JavaScript redirect: window.location = "..." or location.href = "..."
+            if ( preg_match( '/(?:window\.)?location(?:\.href)?\s*=\s*["\']([^"\']+)["\']/i', $body, $matches ) ) {
+                $redirect_url = trim( $matches[1] );
+                if ( filter_var( $redirect_url, FILTER_VALIDATE_URL ) ) {
+                    return $redirect_url;
+                }
+            }
+        }
+
+        return $url;
+    }
+
+    /**
+     * Backfill thumbnails for existing articles that have none.
+     *
+     * Re-runs OG scraping with redirect resolution for articles
+     * missing both thumbnail_url and thumbnail_local.
+     *
+     * @return int Number of articles updated.
+     */
+    public function backfill_article_thumbnails() {
+        global $wpdb;
+
+        $table    = $wpdb->prefix . 'peptide_news_articles';
+        $articles = $wpdb->get_results(
+            "SELECT id, source_url, title
+             FROM {$table}
+             WHERE is_active = 1
+               AND ( thumbnail_url = '' OR thumbnail_url IS NULL )
+               AND ( thumbnail_local = '' OR thumbnail_local IS NULL )
+             ORDER BY fetched_at DESC
+             LIMIT 50"
+        );
+
+        if ( empty( $articles ) ) {
+            return 0;
+        }
+
+        $updated = 0;
+
+        foreach ( $articles as $article ) {
+            $scrape_url = $this->resolve_scrape_url( $article->source_url );
+            $image_url  = $this->scrape_og_image( $scrape_url );
+
+            if ( ! empty( $image_url ) ) {
+                $local_path = $this->download_thumbnail( $image_url, $article->id, $article->title );
+
+                if ( $local_path ) {
+                    $wpdb->update(
+                        $table,
+                        array(
+                            'thumbnail_url'   => $image_url,
+                            'thumbnail_local' => $local_path,
+                        ),
+                        array( 'id' => $article->id ),
+                        array( '%s', '%s' ),
+                        array( '%d' )
+                    );
+                } else {
+                    $wpdb->update(
+                        $table,
+                        array( 'thumbnail_url' => $image_url ),
+                        array( 'id' => $article->id ),
+                        array( '%s' ),
+                        array( '%d' )
+                    );
+                }
+                $updated++;
+            }
+
+            usleep( 500000 ); // 0.5s throttle — full GET requests are heavier.
+        }
+
+        if ( $updated > 0 ) {
+            $this->clear_article_cache();
+        }
+
+        return $updated;
+    }
+
+    /**
+     * AJAX handler for the thumbnail backfill action.
+     */
+    public function ajax_backfill_thumbnails() {
+        check_ajax_referer( 'peptide_news_admin', 'nonce' );
+
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( 'Unauthorized', 403 );
+        }
+
+        $updated = $this->backfill_article_thumbnails();
+        wp_send_json_success( array( 'updated' => $updated ) );
     }
 
     /**

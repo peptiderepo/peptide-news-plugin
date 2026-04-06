@@ -567,6 +567,14 @@ class Peptide_News_Admin {
         echo esc_html__( 'Fix Article Sources', 'peptide-news' );
         echo '</button>';
         echo '<span id="peptide-backfill-result" style="margin-left:10px;"></span>';
+
+        // Backfill Thumbnails button.
+        echo '<div style="margin-top:8px;">';
+        echo '<button type="button" id="peptide-backfill-thumbnails" class="button button-secondary">';
+        echo esc_html__( 'Fix Article Thumbnails', 'peptide-news' );
+        echo '</button>';
+        echo '<span id="peptide-thumb-result" style="margin-left:10px;"></span>';
+        echo '</div>';
         ?>
         <script>
         (function($) {
@@ -586,6 +594,26 @@ class Peptide_News_Admin {
                     }
                 }).fail(function() {
                     $btn.prop('disabled', false).text('<?php echo esc_js( __( 'Fix Article Sources', 'peptide-news' ) ); ?>');
+                    $result.text('Request failed.');
+                });
+            });
+
+            $('#peptide-backfill-thumbnails').on('click', function() {
+                var $btn = $(this), $result = $('#peptide-thumb-result');
+                $btn.prop('disabled', true).text('<?php echo esc_js( __( 'Scraping...', 'peptide-news' ) ); ?>');
+                $result.text('This may take a minute...');
+                $.post(peptideNewsAdmin.ajax_url, {
+                    action: 'peptide_news_backfill_thumbnails',
+                    nonce: peptideNewsAdmin.admin_nonce
+                }, function(response) {
+                    $btn.prop('disabled', false).text('<?php echo esc_js( __( 'Fix Article Thumbnails', 'peptide-news' ) ); ?>');
+                    if (response.success) {
+                        $result.text(response.data.updated + ' thumbnail(s) scraped.');
+                    } else {
+                        $result.text('Error: ' + (response.data || 'Unknown error'));
+                    }
+                }).fail(function() {
+                    $btn.prop('disabled', false).text('<?php echo esc_js( __( 'Fix Article Thumbnails', 'peptide-news' ) ); ?>');
                     $result.text('Request failed.');
                 });
             });
