@@ -32,29 +32,43 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Build deploy branch
+      - name: Sync deploy branch
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          # Create a temporary orphan branch with only plugin files.
-          git checkout --orphan deploy-staging
+          # Fetch the remote deploy branch (may not exist on first run).
+          git fetch origin deploy:deploy 2>/dev/null || true
 
-          # Remove everything from the index.
-          git rm -rf --cached . > /dev/null 2>&1 || true
+          # If deploy branch exists, check it out; otherwise create it.
+          if git rev-parse --verify deploy >/dev/null 2>&1; then
+            git checkout deploy
+          else
+            git checkout --orphan deploy
+            git rm -rf --cached . > /dev/null 2>&1 || true
+          fi
 
-          # Stage only the plugin runtime files.
-          git add -f \
+          # Remove all tracked files so we start clean each time.
+          git rm -rf . > /dev/null 2>&1 || true
+
+          # Checkout only the plugin runtime files from main.
+          git checkout main -- \
             admin/ \
             includes/ \
             languages/ \
             public/ \
             peptide-news-plugin.php
 
-          git commit -m "Deploy ${GITHUB_SHA::7} from main"
+          # Commit only if there are actual changes.
+          git add -A
+          if git diff-index --quiet HEAD -- 2>/dev/null; then
+            echo "No changes to deploy."
+          else
+            git commit -m "Deploy ${GITHUB_SHA::7} from main"
+          fi
 
-          # Force-push to the deploy branch (Hostinger webhook triggers auto-pull).
-          git push --force origin deploy-staging:deploy
+          # Normal push (fast-forward compatible with Hostinger's git pull).
+          git push origin deploy
 
       - name: Purge LiteSpeed Cache
         if: success()
