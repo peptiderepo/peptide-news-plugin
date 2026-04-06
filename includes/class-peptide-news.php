@@ -80,6 +80,7 @@ class Peptide_News {
 
         $this->loader->add_action( 'peptide_news_cron_fetch', $fetcher, 'fetch_all_sources' );
         $this->loader->add_filter( 'cron_schedules', $fetcher, 'add_custom_cron_schedules' );
+        $this->loader->add_action( 'wp_ajax_peptide_news_backfill_sources', $fetcher, 'ajax_backfill_sources' );
     }
 
     /**

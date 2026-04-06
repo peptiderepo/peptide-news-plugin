@@ -61,9 +61,10 @@ class Peptide_News_Admin {
         );
 
         wp_localize_script( $this->plugin_name . '-admin', 'peptideNewsAdmin', array(
-            'ajax_url' => admin_url( 'admin-ajax.php' ),
-            'rest_url' => rest_url( 'peptide-news/v1/' ),
-            'nonce'    => wp_create_nonce( 'wp_rest' ),
+            'ajax_url'    => admin_url( 'admin-ajax.php' ),
+            'rest_url'    => rest_url( 'peptide-news/v1/' ),
+            'nonce'       => wp_create_nonce( 'wp_rest' ),
+            'admin_nonce' => wp_create_nonce( 'peptide_news_admin' ),
         ) );
     }
 
@@ -556,10 +557,41 @@ class Peptide_News_Admin {
         echo '<h1>' . esc_html( get_admin_page_title() ) . '</h1>';
 
         // Fetch Now button.
-        echo '<form method="post">';
+        echo '<form method="post" style="display:inline-block;margin-right:12px;">';
         wp_nonce_field( 'peptide_news_fetch_now_action' );
-        submit_button( __( 'Fetch Articles Now', 'peptide-news' ), 'secondary', 'peptide_news_fetch_now' );
+        submit_button( __( 'Fetch Articles Now', 'peptide-news' ), 'secondary', 'peptide_news_fetch_now', false );
         echo '</form>';
+
+        // Backfill Sources button (fixes "news.google.com" source labels).
+        echo '<button type="button" id="peptide-backfill-sources" class="button button-secondary">';
+        echo esc_html__( 'Fix Article Sources', 'peptide-news' );
+        echo '</button>';
+        echo '<span id="peptide-backfill-result" style="margin-left:10px;"></span>';
+        ?>
+        <script>
+        (function($) {
+            $('#peptide-backfill-sources').on('click', function() {
+                var $btn = $(this), $result = $('#peptide-backfill-result');
+                $btn.prop('disabled', true).text('<?php echo esc_js( __( 'Fixing...', 'peptide-news' ) ); ?>');
+                $result.text('');
+                $.post(peptideNewsAdmin.ajax_url, {
+                    action: 'peptide_news_backfill_sources',
+                    nonce: peptideNewsAdmin.admin_nonce
+                }, function(response) {
+                    $btn.prop('disabled', false).text('<?php echo esc_js( __( 'Fix Article Sources', 'peptide-news' ) ); ?>');
+                    if (response.success) {
+                        $result.text(response.data.updated + ' article(s) updated.');
+                    } else {
+                        $result.text('Error: ' + (response.data || 'Unknown error'));
+                    }
+                }).fail(function() {
+                    $btn.prop('disabled', false).text('<?php echo esc_js( __( 'Fix Article Sources', 'peptide-news' ) ); ?>');
+                    $result.text('Request failed.');
+                });
+            });
+        })(jQuery);
+        </script>
+        <?php
 
         // Last fetch info.
         $last_fetch = get_option( 'peptide_news_last_fetch' );

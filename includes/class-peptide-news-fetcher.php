@@ -161,9 +161,12 @@ class Peptide_News_Fetcher {
                     $pub_date = current_time( 'mysql' );
                 }
 
+                $article_url = esc_url_raw( $item->get_permalink() );
+                $source_name = $this->resolve_article_source( $item, $feed_url, $article_url );
+
                 $articles[] = array(
-                    'source'        => $this->extract_domain( $feed_url ),
-                    'source_url'    => esc_url_raw( $item->get_permalink() ),
+                    'source'        => $source_name,
+                    'source_url'    => $article_url,
                     'title'         => sanitize_text_field( $item->get_title() ),
                     'excerpt'       => wp_trim_words( wp_strip_all_tags( $item->get_description() ), 40 ),
                     'content'       => wp_kses_post( $item->get_content() ),
@@ -615,6 +618,201 @@ class Peptide_News_Fetcher {
         }
 
         return implode( ', ', array_filter( $names ) );
+    }
+
+    /**
+     * Resolve the real source name for an RSS feed item.
+     *
+     * Google News RSS wraps articles from other publishers behind
+     * news.google.com URLs, so the feed-level domain is useless.
+     * This method tries several strategies in priority order:
+     *
+     * 1. SimplePie <source> element (Google News RSS includes this).
+     * 2. Title suffix — Google News formats titles as "Headline - Source".
+     * 3. Resolve the redirect URL to get the actual publisher domain.
+     * 4. Fall back to the article permalink domain.
+     * 5. Last resort: feed URL domain.
+     *
+     * @param SimplePie_Item $item     The RSS item.
+     * @param string         $feed_url The feed URL.
+     * @param string         $article_url The article permalink.
+     * @return string Source name or domain.
+     */
+    private function resolve_article_source( $item, $feed_url, $article_url ) {
+        $feed_domain = $this->extract_domain( $feed_url );
+        $is_aggregator = in_array(
+            $feed_domain,
+            array( 'news.google.com', 'news.yahoo.com', 'msn.com', 'feedly.com' ),
+            true
+        );
+
+        // Strategy 1: SimplePie <source> element.
+        $source_obj = $item->get_source();
+        if ( $source_obj ) {
+            $source_title = $source_obj->get_title();
+            if ( ! empty( $source_title ) ) {
+                return sanitize_text_field( $source_title );
+            }
+            $source_link = $source_obj->get_link();
+            if ( ! empty( $source_link ) ) {
+                $domain = $this->extract_domain( $source_link );
+                if ( 'unknown' !== $domain ) {
+                    return $domain;
+                }
+            }
+        }
+
+        // Strategy 2: Parse "Headline - Source" from title (common in aggregator feeds).
+        if ( $is_aggregator ) {
+            $title = $item->get_title();
+            if ( ! empty( $title ) && preg_match( '/\s[-\x{2013}\x{2014}]\s([^-\x{2013}\x{2014}]+)$/u', $title, $matches ) ) {
+                $candidate = trim( $matches[1] );
+                if ( mb_strlen( $candidate ) <= 60 && mb_strlen( $candidate ) >= 2 ) {
+                    return sanitize_text_field( $candidate );
+                }
+            }
+        }
+
+        // Strategy 3: Resolve Google News redirect URL to actual destination.
+        if ( $is_aggregator ) {
+            $resolved = $this->resolve_redirect_url( $article_url );
+            if ( $resolved && $resolved !== $article_url ) {
+                $domain = $this->extract_domain( $resolved );
+                if ( 'unknown' !== $domain && $domain !== $feed_domain ) {
+                    return $domain;
+                }
+            }
+        }
+
+        // Strategy 4: Use the article permalink domain.
+        $article_domain = $this->extract_domain( $article_url );
+        if ( 'unknown' !== $article_domain && $article_domain !== $feed_domain ) {
+            return $article_domain;
+        }
+
+        // Strategy 5: Fall back to the feed domain.
+        return $feed_domain;
+    }
+
+    /**
+     * Resolve a redirect URL to its final destination without downloading the body.
+     *
+     * @param string $url The URL to resolve.
+     * @return string|false The final URL or false on failure.
+     */
+    private function resolve_redirect_url( $url ) {
+        if ( empty( $url ) ) {
+            return false;
+        }
+
+        $response = wp_remote_head( $url, array(
+            'timeout'     => 8,
+            'redirection' => 5,
+            'user-agent'  => 'Mozilla/5.0 (compatible; PeptideNewsBot/1.0)',
+        ) );
+
+        if ( is_wp_error( $response ) ) {
+            return false;
+        }
+
+        $final_url = wp_remote_retrieve_header( $response, 'location' );
+
+        if ( empty( $final_url ) && isset( $response['http_response'] ) ) {
+            $http_response = $response['http_response'];
+            if ( method_exists( $http_response, 'get_response_object' ) ) {
+                $raw = $http_response->get_response_object();
+                if ( isset( $raw->url ) ) {
+                    return $raw->url;
+                }
+            }
+        }
+
+        return ! empty( $final_url ) ? $final_url : false;
+    }
+
+    /**
+     * Backfill source names for existing articles that show an aggregator domain.
+     *
+     * Parses the " - Source" suffix from stored titles to update the source column.
+     *
+     * @return int Number of articles updated.
+     */
+    public function backfill_article_sources() {
+        global $wpdb;
+
+        $table       = $wpdb->prefix . 'peptide_news_articles';
+        $aggregators = array( 'news.google.com', 'news.yahoo.com', 'msn.com' );
+        $placeholders = implode( ', ', array_fill( 0, count( $aggregators ), '%s' ) );
+
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+        $articles = $wpdb->get_results( $wpdb->prepare(
+            "SELECT id, title, source, source_url
+             FROM {$table}
+             WHERE source IN ({$placeholders})
+               AND is_active = 1",
+            ...$aggregators
+        ) );
+
+        if ( empty( $articles ) ) {
+            return 0;
+        }
+
+        $updated = 0;
+
+        foreach ( $articles as $article ) {
+            $new_source = '';
+
+            // Try parsing "Headline - Source" from title.
+            if ( preg_match( '/\s[-\x{2013}\x{2014}]\s([^-\x{2013}\x{2014}]+)$/u', $article->title, $matches ) ) {
+                $candidate = trim( $matches[1] );
+                if ( mb_strlen( $candidate ) <= 60 && mb_strlen( $candidate ) >= 2 ) {
+                    $new_source = sanitize_text_field( $candidate );
+                }
+            }
+
+            // Fall back to resolving the redirect URL.
+            if ( empty( $new_source ) ) {
+                $resolved = $this->resolve_redirect_url( $article->source_url );
+                if ( $resolved && $resolved !== $article->source_url ) {
+                    $domain = $this->extract_domain( $resolved );
+                    if ( 'unknown' !== $domain && ! in_array( $domain, $aggregators, true ) ) {
+                        $new_source = $domain;
+                    }
+                }
+                usleep( 300000 ); // 0.3s throttle for HTTP requests.
+            }
+
+            if ( ! empty( $new_source ) && $new_source !== $article->source ) {
+                $wpdb->update(
+                    $table,
+                    array( 'source' => $new_source ),
+                    array( 'id' => $article->id ),
+                    array( '%s' ),
+                    array( '%d' )
+                );
+                $updated++;
+            }
+        }
+
+        if ( $updated > 0 ) {
+            $this->clear_article_cache();
+        }
+
+        return $updated;
+    }
+
+    /**
+     * AJAX handler for the backfill action.
+     */
+    public function ajax_backfill_sources() {
+        check_ajax_referer( 'peptide_news_admin', 'nonce' );
+
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( 'Unauthorized', 403 );
+        }
+
+        $updated = $this->backfill_article_sources();
+        wp_send_json_success( array( 'updated' => $updated ) );
     }
 
     /**
