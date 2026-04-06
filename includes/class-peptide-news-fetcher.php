@@ -66,6 +66,13 @@ class Peptide_News_Fetcher {
             }
         }
 
+        // Filter out ads, press releases, and promotional content.
+        $pre_filter_count = count( $articles );
+        if ( class_exists( 'Peptide_News_Content_Filter' ) && Peptide_News_Content_Filter::is_enabled() ) {
+            $articles = Peptide_News_Content_Filter::filter_articles( $articles );
+        }
+        $filtered_out = $pre_filter_count - count( $articles );
+
         // Store articles (deduplication handled by hash).
         $stored = 0;
         foreach ( $articles as $article ) {
@@ -76,9 +83,10 @@ class Peptide_News_Fetcher {
 
         // Log the fetch result.
         update_option( 'peptide_news_last_fetch', array(
-            'time'       => current_time( 'mysql' ),
-            'found'      => count( $articles ),
-            'new_stored' => $stored,
+            'time'         => current_time( 'mysql' ),
+            'found'        => $pre_filter_count,
+            'filtered_out' => $filtered_out,
+            'new_stored'   => $stored,
         ) );
 
         // Scrape OG images for articles missing thumbnails.

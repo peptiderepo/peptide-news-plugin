@@ -162,6 +162,40 @@ class Peptide_News_Admin {
         $this->add_setting( 'analytics_retention', __( 'Analytics Data Retention (days)', 'peptide-news' ), 'render_retention_field', 'peptide_news_analytics_section' );
         $this->add_setting( 'anonymize_ip', __( 'Anonymize IPs', 'peptide-news' ), 'render_anonymize_ip_field', 'peptide_news_analytics_section' );
 
+        // --- Content Filter section ---
+        add_settings_section(
+            'peptide_news_filter_section',
+            __( 'Content Filter', 'peptide-news' ),
+            function () {
+                echo '<p>' . esc_html__( 'Filter out ads, press releases, and promotional content during fetch. Articles that match the rules are discarded before being saved.', 'peptide-news' ) . '</p>';
+                $last_run = get_option( 'peptide_news_filter_last_run' );
+                if ( $last_run && is_array( $last_run ) ) {
+                    printf(
+                        '<p class="description"><strong>%s:</strong> %s | %s: %d | %s: %d | %s: %d | %s: %d</p>',
+                        esc_html__( 'Last filter run', 'peptide-news' ),
+                        esc_html( $last_run['time'] ),
+                        esc_html__( 'Evaluated', 'peptide-news' ),
+                        absint( $last_run['total'] ),
+                        esc_html__( 'Removed', 'peptide-news' ),
+                        absint( $last_run['removed'] ),
+                        esc_html__( 'LLM checked', 'peptide-news' ),
+                        absint( $last_run['llm_checked'] ),
+                        esc_html__( 'Passed', 'peptide-news' ),
+                        absint( $last_run['passed'] )
+                    );
+                }
+            },
+            'peptide-news-settings'
+        );
+
+        $this->add_setting( 'filter_enabled', __( 'Enable Content Filter', 'peptide-news' ), 'render_filter_enabled_field', 'peptide_news_filter_section' );
+        $this->add_setting( 'filter_sensitivity', __( 'Filter Sensitivity', 'peptide-news' ), 'render_filter_sensitivity_field', 'peptide_news_filter_section' );
+        $this->add_setting( 'filter_llm_enabled', __( 'LLM Classification', 'peptide-news' ), 'render_filter_llm_enabled_field', 'peptide_news_filter_section' );
+        $this->add_setting( 'filter_llm_model', __( 'Filter LLM Model', 'peptide-news' ), 'render_filter_llm_model_field', 'peptide_news_filter_section' );
+        $this->add_setting( 'filter_title_keywords', __( 'Title Keywords', 'peptide-news' ), 'render_filter_title_keywords_field', 'peptide_news_filter_section' );
+        $this->add_setting( 'filter_body_keywords', __( 'Body Keywords', 'peptide-news' ), 'render_filter_body_keywords_field', 'peptide_news_filter_section' );
+        $this->add_setting( 'filter_blocked_domains', __( 'Blocked Domains', 'peptide-news' ), 'render_filter_blocked_domains_field', 'peptide_news_filter_section' );
+
         // --- AI / LLM section ---
         add_settings_section(
             'peptide_news_llm_section',
@@ -218,6 +252,13 @@ class Peptide_News_Admin {
             'article_retention'    => 'absint',
             'analytics_retention'  => 'absint',
             'anonymize_ip'         => 'absint',
+            'filter_enabled'          => 'absint',
+            'filter_sensitivity'      => 'sanitize_text_field',
+            'filter_llm_enabled'      => 'absint',
+            'filter_llm_model'        => array( $this, 'sanitize_model_id' ),
+            'filter_title_keywords'   => 'sanitize_textarea_field',
+            'filter_body_keywords'    => 'sanitize_textarea_field',
+            'filter_blocked_domains'  => 'sanitize_textarea_field',
             'llm_enabled'          => 'absint',
             'openrouter_api_key'   => 'sanitize_text_field',
             'llm_keywords_model'   => array( $this, 'sanitize_model_id' ),
@@ -359,6 +400,94 @@ class Peptide_News_Admin {
         );
     }
 
+    // --- Content Filter field renderers ---
+
+    public function render_filter_enabled_field() {
+        $value = get_option( 'peptide_news_filter_enabled', 1 );
+        printf(
+            '<label><input type="checkbox" name="peptide_news_filter_enabled" value="1" %s /> %s</label>',
+            checked( $value, 1, false ),
+            esc_html__( 'Filter out ads, press releases, and promotional content during fetch', 'peptide-news' )
+        );
+    }
+
+    public function render_filter_sensitivity_field() {
+        $value   = get_option( 'peptide_news_filter_sensitivity', 'moderate' );
+        $options = array(
+            'strict'   => __( 'Strict — block aggressively (may catch some legitimate articles)', 'peptide-news' ),
+            'moderate' => __( 'Moderate — balanced filtering (recommended)', 'peptide-news' ),
+            'lenient'  => __( 'Lenient — only block obvious promotional content', 'peptide-news' ),
+        );
+
+        echo '<select name="peptide_news_filter_sensitivity" id="peptide_news_filter_sensitivity">';
+        foreach ( $options as $key => $label ) {
+            printf(
+                '<option value="%s"%s>%s</option>',
+                esc_attr( $key ),
+                selected( $value, $key, false ),
+                esc_html( $label )
+            );
+        }
+        echo '</select>';
+    }
+
+    public function render_filter_llm_enabled_field() {
+        $value = get_option( 'peptide_news_filter_llm_enabled', 0 );
+        printf(
+            '<label><input type="checkbox" name="peptide_news_filter_llm_enabled" value="1" %s /> %s</label>',
+            checked( $value, 1, false ),
+            esc_html__( 'Use LLM to classify borderline articles (requires AI Analysis to be enabled)', 'peptide-news' )
+        );
+    }
+
+    public function render_filter_llm_model_field() {
+        $value = get_option( 'peptide_news_filter_llm_model', '' );
+        printf(
+            '<input type="text" name="peptide_news_filter_llm_model" value="%s" class="regular-text" />',
+            esc_attr( $value )
+        );
+        echo '<p class="description">' . esc_html__( 'OpenRouter model for content classification. Leave blank to use the Keywords Model above.', 'peptide-news' ) . '</p>';
+    }
+
+    public function render_filter_title_keywords_field() {
+        $value = get_option( 'peptide_news_filter_title_keywords', '' );
+        $placeholder = class_exists( 'Peptide_News_Content_Filter' )
+            ? Peptide_News_Content_Filter::get_default_title_keywords_text()
+            : '';
+        printf(
+            '<textarea name="peptide_news_filter_title_keywords" rows="8" class="large-text code" placeholder="%s">%s</textarea>',
+            esc_attr( $placeholder ),
+            esc_textarea( $value )
+        );
+        echo '<p class="description">' . esc_html__( 'One keyword/phrase per line. Articles with these in the title are blocked. Leave empty to use built-in defaults.', 'peptide-news' ) . '</p>';
+    }
+
+    public function render_filter_body_keywords_field() {
+        $value = get_option( 'peptide_news_filter_body_keywords', '' );
+        $placeholder = class_exists( 'Peptide_News_Content_Filter' )
+            ? Peptide_News_Content_Filter::get_default_body_keywords_text()
+            : '';
+        printf(
+            '<textarea name="peptide_news_filter_body_keywords" rows="8" class="large-text code" placeholder="%s">%s</textarea>',
+            esc_attr( $placeholder ),
+            esc_textarea( $value )
+        );
+        echo '<p class="description">' . esc_html__( 'One keyword/phrase per line. Multiple matches in article body trigger filtering (threshold depends on sensitivity). Leave empty to use built-in defaults.', 'peptide-news' ) . '</p>';
+    }
+
+    public function render_filter_blocked_domains_field() {
+        $value = get_option( 'peptide_news_filter_blocked_domains', '' );
+        $placeholder = class_exists( 'Peptide_News_Content_Filter' )
+            ? Peptide_News_Content_Filter::get_default_blocked_domains_text()
+            : '';
+        printf(
+            '<textarea name="peptide_news_filter_blocked_domains" rows="6" class="large-text code" placeholder="%s">%s</textarea>',
+            esc_attr( $placeholder ),
+            esc_textarea( $value )
+        );
+        echo '<p class="description">' . esc_html__( 'One domain per line. Articles from these sources are always blocked. Leave empty to use built-in defaults.', 'peptide-news' ) . '</p>';
+    }
+
     // --- AI / LLM field renderers ---
 
     public function render_llm_enabled_field() {
@@ -435,9 +564,15 @@ class Peptide_News_Admin {
         // Last fetch info.
         $last_fetch = get_option( 'peptide_news_last_fetch' );
         if ( $last_fetch ) {
-            $ai_info = '';
+            $extra_info = '';
+            if ( isset( $last_fetch['filtered_out'] ) && $last_fetch['filtered_out'] > 0 ) {
+                $extra_info .= sprintf( ' | %s: %d',
+                    esc_html__( 'Filtered out', 'peptide-news' ),
+                    $last_fetch['filtered_out']
+                );
+            }
             if ( isset( $last_fetch['ai_processed'] ) ) {
-                $ai_info = sprintf( ' | %s: %d',
+                $extra_info .= sprintf( ' | %s: %d',
                     esc_html__( 'AI analyzed', 'peptide-news' ),
                     $last_fetch['ai_processed']
                 );
@@ -450,7 +585,7 @@ class Peptide_News_Admin {
                 $last_fetch['found'],
                 esc_html__( 'New stored', 'peptide-news' ),
                 $last_fetch['new_stored'],
-                $ai_info
+                $extra_info
             );
         }
 

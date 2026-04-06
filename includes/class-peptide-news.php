@@ -39,6 +39,7 @@ class Peptide_News {
         require_once PEPTIDE_NEWS_PLUGIN_DIR . 'includes/class-peptide-news-analytics.php';
         require_once PEPTIDE_NEWS_PLUGIN_DIR . 'includes/class-peptide-news-rest-api.php';
         require_once PEPTIDE_NEWS_PLUGIN_DIR . 'includes/class-peptide-news-llm.php';
+        require_once PEPTIDE_NEWS_PLUGIN_DIR . 'includes/class-peptide-news-content-filter.php';
         require_once PEPTIDE_NEWS_PLUGIN_DIR . 'admin/class-peptide-news-admin.php';
         require_once PEPTIDE_NEWS_PLUGIN_DIR . 'public/class-peptide-news-public.php';
 

@@ -84,6 +84,35 @@ if ( ! function_exists( 'get_option' ) ) {
         return isset( $_test_options[ $option ] ) ? $_test_options[ $option ] : $default;
     }
 }
+if ( ! function_exists( 'update_option' ) ) {
+    function update_option( $option, $value, $autoload = null ) {
+        global $_test_options;
+        $_test_options[ $option ] = $value;
+        return true;
+    }
+}
+if ( ! function_exists( 'current_time' ) ) {
+    function current_time( $type, $gmt = 0 ) {
+        if ( 'mysql' === $type ) {
+            return gmdate( 'Y-m-d H:i:s' );
+        }
+        return time();
+    }
+}
+if ( ! function_exists( 'is_wp_error' ) ) {
+    function is_wp_error( $thing ) {
+        return ( $thing instanceof WP_Error );
+    }
+}
+if ( ! function_exists( 'wp_strip_all_tags' ) ) {
+    function wp_strip_all_tags( $string, $remove_breaks = false ) {
+        $string = strip_tags( $string );
+        if ( $remove_breaks ) {
+            $string = preg_replace( '/[\r\n\t ]+/', ' ', $string );
+        }
+        return trim( $string );
+    }
+}
 if ( ! function_exists( 'add_filter' ) ) {
     function add_filter( $tag, $callback, $priority = 10, $accepted_args = 1 ) {
         return true;
@@ -107,6 +136,11 @@ if ( ! function_exists( 'esc_html' ) ) {
 }
 if ( ! function_exists( 'esc_attr' ) ) {
     function esc_attr( $text ) {
+        return htmlspecialchars( $text, ENT_QUOTES, 'UTF-8' );
+    }
+}
+if ( ! function_exists( 'esc_textarea' ) ) {
+    function esc_textarea( $text ) {
         return htmlspecialchars( $text, ENT_QUOTES, 'UTF-8' );
     }
 }
@@ -149,6 +183,10 @@ if ( ! class_exists( 'WP_Error' ) ) {
         }
     }
 }
+
+// ── Load plugin classes for testing ───────────────────────────────────
+// Content filter can be loaded standalone (no WordPress runtime needed).
+require_once PEPTIDE_NEWS_PLUGIN_DIR . 'includes/class-peptide-news-content-filter.php';
 
 // Stub WP_REST_Request for REST API tests.
 if ( ! class_exists( 'WP_REST_Request' ) ) {
