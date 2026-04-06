@@ -75,7 +75,7 @@ class Peptide_News_Public {
     public function render_shortcode( $atts ) {
         $atts = shortcode_atts( array(
             'count'  => get_option( 'peptide_news_articles_count', 10 ),
-            'layout' => 'card', // card | compact | list
+            'layout' => 'list', // card | compact | list
         ), $atts, 'peptide_news' );
 
         $articles = $this->get_articles( absint( $atts['count'] ) );
