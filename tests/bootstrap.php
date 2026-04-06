@@ -154,6 +154,27 @@ if ( ! function_exists( 'esc_html__' ) ) {
         return esc_html( $text );
     }
 }
+if ( ! function_exists( 'esc_url_raw' ) ) {
+    function esc_url_raw( $url, $protocols = null ) {
+        return filter_var( $url, FILTER_SANITIZE_URL ) ?: '';
+    }
+}
+if ( ! function_exists( 'current_user_can' ) ) {
+    function current_user_can( $capability ) {
+        global $_test_current_user_can;
+        return ! empty( $_test_current_user_can );
+    }
+}
+if ( ! function_exists( 'is_user_logged_in' ) ) {
+    function is_user_logged_in() {
+        return false;
+    }
+}
+if ( ! function_exists( 'get_current_user_id' ) ) {
+    function get_current_user_id() {
+        return 0;
+    }
+}
 
 // Stub WP_Error for permission checks.
 if ( ! class_exists( 'WP_Error' ) ) {
@@ -187,6 +208,9 @@ if ( ! class_exists( 'WP_Error' ) ) {
 // ── Load plugin classes for testing ───────────────────────────────────
 // Content filter can be loaded standalone (no WordPress runtime needed).
 require_once PEPTIDE_NEWS_PLUGIN_DIR . 'includes/class-peptide-news-content-filter.php';
+
+// LLM class provides is_valid_model() used by Admin sanitize callbacks.
+require_once PEPTIDE_NEWS_PLUGIN_DIR . 'includes/class-peptide-news-llm.php';
 
 // Stub WP_REST_Request for REST API tests.
 if ( ! class_exists( 'WP_REST_Request' ) ) {
