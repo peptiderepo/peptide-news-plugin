@@ -772,64 +772,102 @@ class Peptide_News_Fetcher {
     }
 
     /**
-     * Resolve a Google News article URL to the actual publisher URL
-     * using Google's internal batchexecute API.
+     * Resolve a Google News article URL to the actual publisher URL.
+     *
+     * Tries multiple strategies:
+     * 1. Follow HTTP redirects via wp_remote_get.
+     * 2. Parse the response HTML for the actual article link.
+     * 3. Extract data attributes from the Google News page.
      *
      * @param string $url Google News article URL.
      * @return string|false The resolved article URL, or false on failure.
      */
     private function decode_google_news_url( $url ) {
-        // Extract the article ID from the URL path.
-        if ( ! preg_match( '#/(?:rss/)?articles/([A-Za-z0-9_-]+)#', $url, $matches ) ) {
+        if ( empty( $url ) ) {
             return false;
         }
 
-        $article_id = $matches[1];
-
-        // Build the batchexecute request payload.
-        $inner_payload = json_encode( array(
-            'Fbv4je',
-            '[\"garturlreq\",[[\"en\",\"US\",[\"FINANCE_TOP_INDICES\",\"WEB_TEST_1_0_0\"],null,null,1,1,\"US:en\",null,180,null,null,null,null,null,0,null,null,[1608992183,723341000]],\"en\",\"US\",1,[2,3,4,8],1,1,\"648780909\",0,0,null,0],\"' . $article_id . '\"]',
-            'generic',
-        ) );
-
-        $body = 'f.req=' . urlencode( '[[' . $inner_payload . ']]' );
-
-        $response = wp_remote_post( 'https://news.google.com/_/DotsSplashUi/data/batchexecute', array(
-            'timeout'    => 10,
-            'user-agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'headers'    => array(
-                'Content-Type' => 'application/x-www-form-urlencoded;charset=UTF-8',
-                'Referer'      => 'https://news.google.com/',
+        // Fetch the Google News URL — WordPress will follow HTTP redirects.
+        $response = wp_remote_get( $url, array(
+            'timeout'     => 15,
+            'redirection' => 10,
+            'user-agent'  => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'headers'     => array(
+                'Accept'          => 'text/html,application/xhtml+xml',
+                'Accept-Language' => 'en-US,en;q=0.9',
             ),
-            'body'       => $body,
+            'cookies'             => array(),
+            'limit_response_size' => 300000,
         ) );
 
         if ( is_wp_error( $response ) ) {
             return false;
         }
 
-        $response_body = wp_remote_retrieve_body( $response );
+        // Strategy 1: Check if we were redirected to the actual article.
+        if ( isset( $response['http_response'] ) ) {
+            $http_response = $response['http_response'];
+            if ( method_exists( $http_response, 'get_response_object' ) ) {
+                $raw = $http_response->get_response_object();
+                if ( isset( $raw->url ) ) {
+                    $final_domain = $this->extract_domain( $raw->url );
+                    if ( 'news.google.com' !== $final_domain && 'consent.google.com' !== $final_domain && 'google.com' !== $final_domain ) {
+                        return esc_url_raw( $raw->url );
+                    }
+                }
+            }
+        }
 
-        if ( empty( $response_body ) ) {
+        $body = wp_remote_retrieve_body( $response );
+        if ( empty( $body ) ) {
             return false;
         }
 
-        // The response is a multi-line format. The actual data is in the JSON payload.
-        // Extract URLs from the response — the real article URL appears in the JSON.
-        if ( preg_match_all( '#(https?://[^"\\\\]+)#', $response_body, $url_matches ) ) {
-            foreach ( $url_matches[1] as $candidate ) {
-                $candidate_domain = $this->extract_domain( $candidate );
-                // Skip Google's own domains.
-                if ( in_array( $candidate_domain, array( 'news.google.com', 'google.com', 'consent.google.com', 'accounts.google.com' ), true ) ) {
-                    continue;
-                }
-                // Skip common non-article URLs.
-                if ( strpos( $candidate, 'googleapis.com' ) !== false || strpos( $candidate, 'gstatic.com' ) !== false ) {
-                    continue;
-                }
-                // Found a non-Google URL — this is likely the article.
+        // Strategy 2: Extract data-n-au attribute (Google News article URL).
+        if ( preg_match( '/data-n-au=["\']([^"\']+)["\']/i', $body, $matches ) ) {
+            $candidate = html_entity_decode( $matches[1] );
+            if ( filter_var( $candidate, FILTER_VALIDATE_URL ) ) {
                 return esc_url_raw( $candidate );
+            }
+        }
+
+        // Strategy 3: Look for article link in common Google News page patterns.
+        // The page may contain <a href="..."> pointing to the actual article.
+        if ( preg_match_all( '/<a[^>]+href=["\']([^"\']+)["\']/i', $body, $link_matches ) ) {
+            foreach ( $link_matches[1] as $href ) {
+                $href = html_entity_decode( $href );
+                if ( ! filter_var( $href, FILTER_VALIDATE_URL ) ) {
+                    continue;
+                }
+                $link_domain = $this->extract_domain( $href );
+                if ( in_array( $link_domain, array( 'news.google.com', 'google.com', 'consent.google.com', 'accounts.google.com', 'support.google.com', 'policies.google.com' ), true ) ) {
+                    continue;
+                }
+                if ( strpos( $href, 'googleapis.com' ) !== false || strpos( $href, 'gstatic.com' ) !== false ) {
+                    continue;
+                }
+                // Found a non-Google link — likely the article.
+                return esc_url_raw( $href );
+            }
+        }
+
+        // Strategy 4: Meta refresh or JS redirect.
+        if ( preg_match( '/<meta[^>]+http-equiv=["\']refresh["\'][^>]+content=["\'][^"\']*url=([^"\'>\s]+)/is', $body, $matches ) ) {
+            $redirect_url = html_entity_decode( trim( $matches[1] ) );
+            if ( filter_var( $redirect_url, FILTER_VALIDATE_URL ) ) {
+                $rd = $this->extract_domain( $redirect_url );
+                if ( 'news.google.com' !== $rd && 'consent.google.com' !== $rd ) {
+                    return esc_url_raw( $redirect_url );
+                }
+            }
+        }
+        if ( preg_match( '/(?:window\.)?location(?:\.href)?\s*=\s*["\']([^"\']+)["\']/i', $body, $matches ) ) {
+            $redirect_url = trim( $matches[1] );
+            if ( filter_var( $redirect_url, FILTER_VALIDATE_URL ) ) {
+                $rd = $this->extract_domain( $redirect_url );
+                if ( 'news.google.com' !== $rd && 'consent.google.com' !== $rd ) {
+                    return esc_url_raw( $redirect_url );
+                }
             }
         }
 
@@ -978,6 +1016,34 @@ class Peptide_News_Fetcher {
             $scrape_url = $this->resolve_scrape_url( $article->source_url );
             $sample['resolved_url'] = substr( $scrape_url, 0, 120 );
             $sample['url_changed']  = ( $scrape_url !== $article->source_url );
+
+            // Extra debug: if URL didn't change, try direct fetch and show response info.
+            if ( ! $sample['url_changed'] && strpos( $article->source_url, 'news.google.com' ) !== false ) {
+                $dbg_resp = wp_remote_get( $article->source_url, array(
+                    'timeout'             => 10,
+                    'redirection'         => 10,
+                    'user-agent'          => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                    'limit_response_size' => 50000,
+                ) );
+                if ( is_wp_error( $dbg_resp ) ) {
+                    $sample['fetch_error'] = $dbg_resp->get_error_message();
+                } else {
+                    $sample['fetch_status'] = wp_remote_retrieve_response_code( $dbg_resp );
+                    $body_snip = wp_remote_retrieve_body( $dbg_resp );
+                    $sample['body_length'] = strlen( $body_snip );
+                    $sample['body_snippet'] = substr( strip_tags( $body_snip ), 0, 300 );
+                    // Check final URL
+                    if ( isset( $dbg_resp['http_response'] ) ) {
+                        $hr = $dbg_resp['http_response'];
+                        if ( method_exists( $hr, 'get_response_object' ) ) {
+                            $raw = $hr->get_response_object();
+                            if ( isset( $raw->url ) ) {
+                                $sample['final_url'] = substr( $raw->url, 0, 150 );
+                            }
+                        }
+                    }
+                }
+            }
 
             $image_url = $this->scrape_og_image( $scrape_url );
             $sample['og_image'] = $image_url ? substr( $image_url, 0, 120 ) : '(none)';
