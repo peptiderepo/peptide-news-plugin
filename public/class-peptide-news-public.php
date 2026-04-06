@@ -95,7 +95,9 @@ class Peptide_News_Public {
         ?>
         <div class="pn-news-feed pn-layout-<?php echo esc_attr( $layout ); ?>">
             <?php foreach ( $articles as $article ) :
-                $thumb = ! empty( $article->thumbnail_url ) ? $article->thumbnail_url : $fallback_thumb;
+                $thumb = ( ! empty( $article->thumbnail_url ) && '_no_image' !== $article->thumbnail_url )
+                    ? $article->thumbnail_url
+                    : $fallback_thumb;
                 $date  = wp_date( 'M j, Y', strtotime( $article->published_at ) );
             ?>
                 <article class="pn-article" data-article-id="<?php echo esc_attr( $article->id ); ?>">

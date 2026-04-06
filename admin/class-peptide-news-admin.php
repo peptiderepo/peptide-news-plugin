@@ -609,12 +609,10 @@ class Peptide_News_Admin {
                     $btn.prop('disabled', false).text('<?php echo esc_js( __( 'Fix Article Thumbnails', 'peptide-news' ) ); ?>');
                     if (response.success) {
                         var d = response.data;
-                        var msg = d.updated + ' thumbnail(s) scraped. Query matched: ' + d.query_count;
-                        if (d.total_active !== undefined) {
-                            msg += ' | Total: ' + d.total_active + ', Has URL: ' + d.with_thumb_url + ', Has local: ' + d.with_thumb_local;
-                        }
+                        var msg = d.updated + ' of ' + d.total + ' thumbnails found.';
+                        if (d.failed > 0) { msg += ' ' + d.failed + ' could not be resolved.'; }
                         $result.text(msg);
-                        if (d.samples && d.samples.length) { console.log('Thumbnail debug:', JSON.stringify(d, null, 2)); }
+                        if (d.samples && d.samples.length) { console.log('Thumbnail backfill:', JSON.stringify(d.samples, null, 2)); }
                     } else {
                         $result.text('Error: ' + (response.data || 'Unknown error'));
                     }
