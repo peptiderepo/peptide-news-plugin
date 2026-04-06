@@ -38,8 +38,17 @@ class Peptide_News_Fetcher {
 
     /**
      * Master fetch method — called by WP-Cron.
+     * Uses a transient lock to prevent concurrent executions.
      */
     public function fetch_all_sources() {
+        // Prevent overlapping fetch jobs.
+        $lock_key = 'peptide_news_fetch_lock';
+        if ( get_transient( $lock_key ) ) {
+            $this->log_error( 'Fetch already in progress. Skipping this cycle.' );
+            return;
+        }
+        set_transient( $lock_key, true, 300 ); // 5-minute lock.
+
         $articles = array();
 
         // Fetch from RSS feeds.
@@ -72,21 +81,32 @@ class Peptide_News_Fetcher {
             'new_stored' => $stored,
         ) );
 
+        // Scrape OG images for articles missing thumbnails.
+        $og_scraped = $this->scrape_missing_thumbnails();
+
         // Run AI analysis on newly fetched articles (keywords + summary).
         if ( class_exists( 'Peptide_News_LLM' ) && Peptide_News_LLM::is_enabled() ) {
             $llm_batch_size = absint( get_option( 'peptide_news_llm_max_articles', 10 ) );
             $llm_processed  = Peptide_News_LLM::process_unanalyzed( $llm_batch_size );
 
+            // Generate AI thumbnails for articles still missing images.
+            $ai_thumbs = Peptide_News_LLM::generate_missing_thumbnails( $llm_batch_size );
+
             // Append LLM stats to the fetch log.
             $fetch_log = get_option( 'peptide_news_last_fetch' );
             if ( is_array( $fetch_log ) ) {
-                $fetch_log['ai_processed'] = $llm_processed;
+                $fetch_log['ai_processed']  = $llm_processed;
+                $fetch_log['og_scraped']    = $og_scraped;
+                $fetch_log['ai_thumbnails'] = $ai_thumbs;
                 update_option( 'peptide_news_last_fetch', $fetch_log );
             }
         }
 
         // Prune old articles beyond retention period.
         $this->prune_old_articles();
+
+        // Release the fetch lock.
+        delete_transient( $lock_key );
     }
 
     /**
@@ -270,6 +290,280 @@ class Peptide_News_Fetcher {
             "UPDATE {$table} SET is_active = 0 WHERE published_at < %s",
             $cutoff
         ) );
+    }
+
+    /**
+     * Scrape Open Graph images for articles that have no thumbnail.
+     *
+     * Fetches the article URL and extracts og:image, twitter:image,
+     * or other meta image tags.
+     *
+     * @return int Number of articles updated with scraped thumbnails.
+     */
+    private function scrape_missing_thumbnails() {
+        global $wpdb;
+
+        $table    = $wpdb->prefix . 'peptide_news_articles';
+        $articles = $wpdb->get_results(
+            "SELECT id, source_url, title
+             FROM {$table}
+             WHERE is_active = 1
+               AND ( thumbnail_url = '' OR thumbnail_url IS NULL )
+               AND ( thumbnail_local = '' OR thumbnail_local IS NULL )
+             ORDER BY fetched_at DESC
+             LIMIT 20"
+        );
+
+        if ( empty( $articles ) ) {
+            return 0;
+        }
+
+        $updated = 0;
+
+        foreach ( $articles as $article ) {
+            $image_url = $this->scrape_og_image( $article->source_url );
+
+            if ( ! empty( $image_url ) ) {
+                // Download and store the image locally for reliability.
+                $local_path = $this->download_thumbnail( $image_url, $article->id, $article->title );
+
+                if ( $local_path ) {
+                    $wpdb->update(
+                        $table,
+                        array(
+                            'thumbnail_url'   => $image_url,
+                            'thumbnail_local' => $local_path,
+                        ),
+                        array( 'id' => $article->id ),
+                        array( '%s', '%s' ),
+                        array( '%d' )
+                    );
+                } else {
+                    // Store the external URL even if local download fails.
+                    $wpdb->update(
+                        $table,
+                        array( 'thumbnail_url' => $image_url ),
+                        array( 'id' => $article->id ),
+                        array( '%s' ),
+                        array( '%d' )
+                    );
+                }
+                $updated++;
+            }
+
+            // Small delay to be respectful to source servers.
+            usleep( 300000 ); // 0.3s
+        }
+
+        // Clear transient cache if we updated any thumbnails.
+        if ( $updated > 0 ) {
+            $this->clear_article_cache();
+        }
+
+        return $updated;
+    }
+
+    /**
+     * Scrape Open Graph / meta image tags from a URL.
+     *
+     * @param string $url The article URL to scrape.
+     * @return string Image URL or empty string.
+     */
+    private function scrape_og_image( $url ) {
+        if ( empty( $url ) ) {
+            return '';
+        }
+
+        $response = wp_remote_get( $url, array(
+            'timeout'    => 15,
+            'user-agent' => 'Mozilla/5.0 (compatible; PeptideNewsBot/1.0)',
+            'headers'    => array(
+                'Accept' => 'text/html',
+            ),
+            // Only fetch the first ~200KB for efficiency.
+            'stream'  => false,
+            'limit_response_size' => 200000,
+        ) );
+
+        if ( is_wp_error( $response ) ) {
+            $this->log_error( 'OG scrape failed for ' . $url . ': ' . $response->get_error_message() );
+            return '';
+        }
+
+        $status = wp_remote_retrieve_response_code( $response );
+        if ( $status < 200 || $status >= 400 ) {
+            return '';
+        }
+
+        $html = wp_remote_retrieve_body( $response );
+
+        if ( empty( $html ) ) {
+            return '';
+        }
+
+        // Try meta tags in priority order.
+        $patterns = array(
+            // Open Graph image.
+            '/<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']/is',
+            '/<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image["\']/is',
+            // Twitter card image.
+            '/<meta[^>]+name=["\']twitter:image["\'][^>]+content=["\']([^"\']+)["\']/is',
+            '/<meta[^>]+content=["\']([^"\']+)["\'][^>]+name=["\']twitter:image["\']/is',
+            // Schema.org image.
+            '/<meta[^>]+itemprop=["\']image["\'][^>]+content=["\']([^"\']+)["\']/is',
+        );
+
+        foreach ( $patterns as $pattern ) {
+            if ( preg_match( $pattern, $html, $matches ) ) {
+                $image_url = trim( $matches[1] );
+
+                // Validate it looks like an image URL.
+                if ( $this->is_valid_image_url( $image_url ) ) {
+                    return esc_url_raw( $image_url );
+                }
+            }
+        }
+
+        return '';
+    }
+
+    /**
+     * Check if a URL appears to be a valid image.
+     *
+     * @param string $url
+     * @return bool
+     */
+    private function is_valid_image_url( $url ) {
+        if ( empty( $url ) || strlen( $url ) < 10 ) {
+            return false;
+        }
+
+        // Must start with http(s).
+        if ( ! preg_match( '/^https?:\/\//i', $url ) ) {
+            return false;
+        }
+
+        // Reject obvious non-image URLs (tracking pixels, spacers, etc.)
+        $blocklist = array( '1x1', 'pixel', 'spacer', 'blank', 'transparent', 'data:image' );
+        $url_lower = strtolower( $url );
+        foreach ( $blocklist as $blocked ) {
+            if ( strpos( $url_lower, $blocked ) !== false ) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Download an image and store it in the WP uploads directory.
+     *
+     * @param string $image_url External image URL.
+     * @param int    $article_id Article ID for unique naming.
+     * @param string $title      Article title for alt text / file naming.
+     * @return string|false Local relative path on success, false on failure.
+     */
+    private function download_thumbnail( $image_url, $article_id, $title = '' ) {
+        // SSRF prevention: validate URL before fetching.
+        if ( ! wp_http_validate_url( $image_url ) ) {
+            $this->log_error( 'Invalid image URL (SSRF protection) for article ' . $article_id . ': ' . $image_url );
+            return false;
+        }
+
+        $upload_dir = wp_upload_dir();
+        $target_dir = $upload_dir['basedir'] . '/peptide-news-thumbs';
+
+        // Create directory if it doesn't exist.
+        if ( ! file_exists( $target_dir ) ) {
+            wp_mkdir_p( $target_dir );
+        }
+
+        $max_file_size = 5 * 1024 * 1024; // 5 MB.
+
+        $response = wp_remote_get( $image_url, array(
+            'timeout'             => 20,
+            'user-agent'          => 'Mozilla/5.0 (compatible; PeptideNewsBot/1.0)',
+            'limit_response_size' => $max_file_size,
+        ) );
+
+        if ( is_wp_error( $response ) ) {
+            $this->log_error( 'Thumbnail download failed for article ' . $article_id . ': ' . $response->get_error_message() );
+            return false;
+        }
+
+        $body = wp_remote_retrieve_body( $response );
+        if ( empty( $body ) || strlen( $body ) < 1000 || strlen( $body ) > $max_file_size ) {
+            // Too small to be a real image, or exceeds size limit.
+            return false;
+        }
+
+        $content_type = wp_remote_retrieve_header( $response, 'content-type' );
+        $extension    = $this->get_extension_from_content_type( $content_type );
+
+        if ( ! $extension ) {
+            // Try to detect from the image data.
+            $finfo = new finfo( FILEINFO_MIME_TYPE );
+            $mime  = $finfo->buffer( $body );
+            $extension = $this->get_extension_from_content_type( $mime );
+        }
+
+        if ( ! $extension ) {
+            return false;
+        }
+
+        $filename = 'pn-thumb-' . $article_id . '.' . $extension;
+        $filepath = $target_dir . '/' . $filename;
+
+        // Write the file.
+        $result = file_put_contents( $filepath, $body );
+
+        if ( false === $result ) {
+            $this->log_error( 'Failed to write thumbnail file: ' . $filepath );
+            return false;
+        }
+
+        // Set secure file permissions.
+        chmod( $filepath, 0644 );
+
+        // Return the relative path from uploads base.
+        return 'peptide-news-thumbs/' . $filename;
+    }
+
+    /**
+     * Map content type to file extension.
+     *
+     * @param string $content_type
+     * @return string|false
+     */
+    private function get_extension_from_content_type( $content_type ) {
+        $map = array(
+            'image/jpeg'    => 'jpg',
+            'image/jpg'     => 'jpg',
+            'image/png'     => 'png',
+            'image/gif'     => 'gif',
+            'image/webp'    => 'webp',
+            'image/svg+xml' => 'svg',
+        );
+
+        $content_type = strtolower( trim( explode( ';', $content_type )[0] ) );
+
+        return isset( $map[ $content_type ] ) ? $map[ $content_type ] : false;
+    }
+
+    /**
+     * Clear all article transient caches.
+     */
+    private function clear_article_cache() {
+        global $wpdb;
+        $wpdb->query(
+            $wpdb->prepare(
+                "DELETE FROM {$wpdb->options}
+                 WHERE option_name LIKE %s
+                    OR option_name LIKE %s",
+                $wpdb->esc_like( '_transient_peptide_news_articles_' ) . '%',
+                $wpdb->esc_like( '_transient_timeout_peptide_news_articles_' ) . '%'
+            )
+        );
     }
 
     /**
