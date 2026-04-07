@@ -75,14 +75,15 @@ class Peptide_News_LLM {
             if ( ! is_wp_error( $keywords_result ) ) {
                 $results['keywords'] = self::sanitize_keywords( $keywords_result );
                 $any_success = true;
+                Peptide_News_Logger::debug( 'Keywords extracted for article #' . $article->id, 'llm' );
             } else {
                 $err_msg = 'Keywords (' . $keywords_model . '): ' . $keywords_result->get_error_message();
                 $results['errors'][] = $err_msg;
-                self::log_error( 'Keyword extraction failed for article ' . $article->id . ': ' . $keywords_result->get_error_message() );
+                Peptide_News_Logger::error( 'Keyword extraction failed for article #' . $article->id . ': ' . $keywords_result->get_error_message(), 'llm' );
             }
         } elseif ( $need_keywords ) {
             $results['errors'][] = 'Invalid keywords model ID: ' . $keywords_model;
-            self::log_error( 'Invalid keywords model ID: ' . $keywords_model );
+            Peptide_News_Logger::error( 'Invalid keywords model ID: ' . $keywords_model, 'llm' );
         }
 
         // --- Summarization ---
@@ -97,14 +98,15 @@ class Peptide_News_LLM {
                 // Strip all HTML tags from LLM output to prevent XSS.
                 $results['summary'] = sanitize_textarea_field( wp_strip_all_tags( $summary_result ) );
                 $any_success = true;
+                Peptide_News_Logger::info( 'AI summary generated for article #' . $article->id . ': ' . mb_substr( $article->title, 0, 60 ), 'llm' );
             } else {
                 $err_msg = 'Summary (' . $summary_model . '): ' . $summary_result->get_error_message();
                 $results['errors'][] = $err_msg;
-                self::log_error( 'Summarization failed for article ' . $article->id . ': ' . $summary_result->get_error_message() );
+                Peptide_News_Logger::error( 'Summarization failed for article #' . $article->id . ': ' . $summary_result->get_error_message(), 'llm' );
             }
         } elseif ( $need_summary ) {
             $results['errors'][] = 'Invalid summary model ID: ' . $summary_model;
-            self::log_error( 'Invalid summary model ID: ' . $summary_model );
+            Peptide_News_Logger::error( 'Invalid summary model ID: ' . $summary_model, 'llm' );
         }
 
         $results['success'] = $any_success;
@@ -197,6 +199,12 @@ class Peptide_News_LLM {
             'attempted' => count( $articles ),
             'errors'    => $last_errors,
         ) );
+
+        if ( $processed > 0 ) {
+            Peptide_News_Logger::info( sprintf( 'AI batch complete: %d/%d articles processed.', $processed, count( $articles ) ), 'llm' );
+        } elseif ( count( $articles ) > 0 ) {
+            Peptide_News_Logger::warning( sprintf( 'AI batch: 0/%d articles succeeded.', count( $articles ) ), 'llm' );
+        }
 
         return $processed;
     }
@@ -406,6 +414,8 @@ class Peptide_News_LLM {
         if ( ! self::is_enabled() ) {
             wp_send_json_error( 'AI Analysis is not enabled. Please enable it and set an OpenRouter API key in Peptide News → Settings.' );
         }
+
+        Peptide_News_Logger::info( 'Bulk AI summary generation triggered by admin.', 'llm' );
 
         // Auto-correct known broken model names to a working free model.
         $broken_models = array(

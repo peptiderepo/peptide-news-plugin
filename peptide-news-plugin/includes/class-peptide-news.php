@@ -39,6 +39,7 @@ class Peptide_News {
         require_once PEPTIDE_NEWS_PLUGIN_DIR . 'includes/class-peptide-news-analytics.php';
         require_once PEPTIDE_NEWS_PLUGIN_DIR . 'includes/class-peptide-news-rest-api.php';
         require_once PEPTIDE_NEWS_PLUGIN_DIR . 'includes/class-peptide-news-llm.php';
+        require_once PEPTIDE_NEWS_PLUGIN_DIR . 'includes/class-peptide-news-logger.php';
         require_once PEPTIDE_NEWS_PLUGIN_DIR . 'includes/class-peptide-news-content-filter.php';
         require_once PEPTIDE_NEWS_PLUGIN_DIR . 'admin/class-peptide-news-admin.php';
         require_once PEPTIDE_NEWS_PLUGIN_DIR . 'public/class-peptide-news-public.php';
@@ -82,6 +83,8 @@ class Peptide_News {
         $this->loader->add_filter( 'cron_schedules', $fetcher, 'add_custom_cron_schedules' );
         $this->loader->add_action( 'wp_ajax_peptide_news_backfill_sources', $fetcher, 'ajax_backfill_sources' );
         $this->loader->add_action( 'wp_ajax_peptide_news_generate_summaries', 'Peptide_News_LLM', 'ajax_generate_summaries' );
+        $this->loader->add_action( 'wp_ajax_peptide_news_get_logs', 'Peptide_News_Logger', 'ajax_get_logs' );
+        $this->loader->add_action( 'wp_ajax_peptide_news_clear_logs', 'Peptide_News_Logger', 'ajax_clear_logs' );
     }
 
     /**

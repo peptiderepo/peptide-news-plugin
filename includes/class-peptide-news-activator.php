@@ -15,6 +15,11 @@ class Peptide_News_Activator {
         self::create_tables();
         self::set_default_options();
         self::schedule_cron();
+
+        // Create the log table (idempotent via dbDelta).
+        if ( class_exists( 'Peptide_News_Logger' ) ) {
+            Peptide_News_Logger::create_table();
+        }
     }
 
     /**
