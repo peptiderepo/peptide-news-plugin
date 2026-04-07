@@ -111,7 +111,7 @@ class Peptide_News_Rest_API {
      * @return true|WP_Error
      */
     public function validate_date_format( $value, $request, $param ) {
-        if ( ! preg_match( '/^\d{4}-\d{2}-\d{2}$/', $value ) ) {
+        if ( ! preg_match( '/^\\d{4}-\\d{2}-\\d{2}$/', $value ) ) {
             return new WP_Error(
                 'rest_invalid_date',
                 sprintf( __( 'Invalid date format for %s. Expected Y-m-d.', 'peptide-news' ), $param ),
@@ -123,6 +123,9 @@ class Peptide_News_Rest_API {
 
     /**
      * GET /articles
+     *
+     * Returns active articles with no-cache headers so that
+     * LiteSpeed / CDN layers always serve fresh data.
      */
     public function get_articles( $request ) {
         global $wpdb;
@@ -134,24 +137,30 @@ class Peptide_News_Rest_API {
 
         $articles = $wpdb->get_results( $wpdb->prepare(
             "SELECT id, source, source_url, title, excerpt, ai_summary, author,
-                    published_at, categories, tags
+                    thumbnail_url, thumbnail_local, published_at, categories, tags
              FROM {$table}
              WHERE is_active = 1
              ORDER BY published_at DESC
              LIMIT %d OFFSET %d",
-             $count,
-             $offset
+            $count,
+            $offset
         ) );
- 
+
         $total = $wpdb->get_var( "SELECT COUNT(*) FROM {$table} WHERE is_active = 1" );
 
-        return rest_ensure_response( array(
+        $response = rest_ensure_response( array(
             'articles'    => $articles,
             'total'       => (int) $total,
             'page'        => $page,
             'per_page'    => $count,
             'total_pages' => ceil( $total / $count ),
         ) );
+
+        // Prevent LiteSpeed and browser caches from serving stale article data.
+        $response->header( 'Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0' );
+        $response->header( 'X-LiteSpeed-Cache-Control', 'no-cache' );
+
+        return $response;
     }
 
     /**
