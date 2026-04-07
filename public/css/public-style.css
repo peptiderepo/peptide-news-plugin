@@ -98,10 +98,6 @@
     line-height: 1.65;
     color: #4b5563;
     margin: 0 0 0.625rem;
-    display: -webkit-box;
-    -webkit-line-clamp: 3;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
 }
 
 /* ── Author ────────────────────────────────────────────────────── */
@@ -305,7 +301,6 @@
 
     .pn-article-excerpt {
         font-size: 0.875rem;
-        -webkit-line-clamp: 2;
     }
 
     .pn-pagination {
