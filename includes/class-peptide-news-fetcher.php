@@ -44,10 +44,12 @@ class Peptide_News_Fetcher {
         // Prevent overlapping fetch jobs.
         $lock_key = 'peptide_news_fetch_lock';
         if ( get_transient( $lock_key ) ) {
-            $this->log_error( 'Fetch already in progress. Skipping this cycle.' );
+            Peptide_News_Logger::warning( 'Fetch already in progress — skipping this cycle.', 'fetch' );
             return;
         }
         set_transient( $lock_key, true, 300 ); // 5-minute lock.
+
+        Peptide_News_Logger::info( 'Fetch cycle started.', 'fetch' );
 
         $articles = array();
 
@@ -88,6 +90,11 @@ class Peptide_News_Fetcher {
             'filtered_out' => $filtered_out,
             'new_stored'   => $stored,
         ) );
+
+        Peptide_News_Logger::info( sprintf(
+            'Fetch complete: %d found, %d filtered out, %d new stored.',
+            $pre_filter_count, $filtered_out, $stored
+        ), 'fetch' );
 
         // Run AI analysis on newly fetched articles (keywords + summary).
         if ( class_exists( 'Peptide_News_LLM' ) && Peptide_News_LLM::is_enabled() ) {
