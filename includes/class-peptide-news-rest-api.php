@@ -133,8 +133,8 @@ class Peptide_News_Rest_API {
         $table  = $wpdb->prefix . 'peptide_news_articles';
 
         $articles = $wpdb->get_results( $wpdb->prepare(
-            "SELECT id, source, source_url, title, excerpt, author, thumbnail_url,
-                    thumbnail_local, published_at, categories, tags
+            "SELECT id, source, source_url, title, excerpt, ai_summary, author,
+                    published_at, categories, tags
              FROM {$table}
              WHERE is_active = 1
              ORDER BY published_at DESC

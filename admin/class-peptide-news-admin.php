@@ -211,7 +211,7 @@ class Peptide_News_Admin {
         $this->add_setting( 'openrouter_api_key', __( 'OpenRouter API Key', 'peptide-news' ), 'render_openrouter_key_field', 'peptide_news_llm_section' );
         $this->add_setting( 'llm_keywords_model', __( 'Keywords Model', 'peptide-news' ), 'render_llm_keywords_model_field', 'peptide_news_llm_section' );
         $this->add_setting( 'llm_summary_model', __( 'Summary Model', 'peptide-news' ), 'render_llm_summary_model_field', 'peptide_news_llm_section' );
-        $this->add_setting( 'llm_image_model', __( 'Image Generation Model', 'peptide-news' ), 'render_llm_image_model_field', 'peptide_news_llm_section' );
+
         $this->add_setting( 'llm_max_articles', __( 'Max Articles per Cycle', 'peptide-news' ), 'render_llm_max_articles_field', 'peptide_news_llm_section' );
     }
 
@@ -265,9 +265,7 @@ class Peptide_News_Admin {
             'openrouter_api_key'   => 'sanitize_text_field',
             'llm_keywords_model'   => array( $this, 'sanitize_model_id' ),
             'llm_summary_model'    => array( $this, 'sanitize_model_id' ),
-            'llm_image_model'      => array( $this, 'sanitize_model_id' ),
             'llm_max_articles'     => 'absint',
-            'thumbnail_fallback'   => 'esc_url_raw',
         );
 
         return isset( $callbacks[ $key ] ) ? $callbacks[ $key ] : 'sanitize_text_field';
@@ -532,15 +530,6 @@ class Peptide_News_Admin {
         echo '<p class="description">' . esc_html__( 'OpenRouter model ID for article summarization (e.g., google/gemini-2.0-flash-001, anthropic/claude-3.5-sonnet).', 'peptide-news' ) . '</p>';
     }
 
-    public function render_llm_image_model_field() {
-        $value = get_option( 'peptide_news_llm_image_model', '' );
-        printf(
-            '<input type="text" name="peptide_news_llm_image_model" value="%s" class="regular-text" />',
-            esc_attr( $value )
-        );
-        echo '<p class="description">' . esc_html__( 'OpenRouter model ID for AI thumbnail generation (e.g., openai/dall-e-3, stabilityai/stable-diffusion-xl). Leave blank to disable AI thumbnails.', 'peptide-news' ) . '</p>';
-    }
-
     public function render_llm_max_articles_field() {
         $value = get_option( 'peptide_news_llm_max_articles', 10 );
         printf(
@@ -579,13 +568,6 @@ class Peptide_News_Admin {
         echo '</button>';
         echo '<span id="peptide-backfill-result" style="margin-left:10px;"></span>';
 
-        // Backfill Thumbnails button.
-        echo '<div style="margin-top:8px;">';
-        echo '<button type="button" id="peptide-backfill-thumbnails" class="button button-secondary">';
-        echo esc_html__( 'Fix Article Thumbnails', 'peptide-news' );
-        echo '</button>';
-        echo '<span id="peptide-thumb-result" style="margin-left:10px;"></span>';
-        echo '</div>';
         ?>
         <script>
         (function($) {
@@ -609,33 +591,6 @@ class Peptide_News_Admin {
                 });
             });
 
-            $('#peptide-backfill-thumbnails').on('click', function() {
-                var $btn = $(this), $result = $('#peptide-thumb-result');
-                $btn.prop('disabled', true).text('<?php echo esc_js( __( 'Scraping...', 'peptide-news' ) ); ?>');
-                $result.text('This may take a minute...');
-                $.post(peptideNewsAdmin.ajax_url, {
-                    action: 'peptide_news_backfill_thumbnails',
-                    nonce: peptideNewsAdmin.admin_nonce
-                }, function(response) {
-                    $btn.prop('disabled', false).text('<?php echo esc_js( __( 'Fix Article Thumbnails', 'peptide-news' ) ); ?>');
-                    if (response.success) {
-                        var d = response.data;
-                        var parts = [];
-                        if (d.scraped > 0) { parts.push(d.scraped + ' scraped'); }
-                        if (d.generated > 0) { parts.push(d.generated + ' AI-generated'); }
-                        if (d.failed > 0) { parts.push(d.failed + ' remaining'); }
-                        var msg = (d.scraped + d.generated) + ' of ' + d.total + ' thumbnails resolved';
-                        if (parts.length) { msg += ' (' + parts.join(', ') + ')'; }
-                        $result.text(msg);
-                        if (d.samples && d.samples.length) { console.log('Thumbnail backfill:', JSON.stringify(d.samples, null, 2)); }
-                    } else {
-                        $result.text('Error: ' + (response.data || 'Unknown error'));
-                    }
-                }).fail(function() {
-                    $btn.prop('disabled', false).text('<?php echo esc_js( __( 'Fix Article Thumbnails', 'peptide-news' ) ); ?>');
-                    $result.text('Request failed.');
-                });
-            });
         })(jQuery);
         </script>
         <?php
