@@ -22,6 +22,19 @@ const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 /* ── Utilities ──────────────────────────────────────────────────────── */
 
 /**
+ * Decode HTML entities (e.g., &amp;nbsp; &#039;) to their plain-text equivalents.
+ *
+ * @param {string} str String potentially containing HTML entities.
+ * @returns {string} Decoded string.
+ */
+function decodeEntities(str) {
+  if (!str) return '';
+  const txt = document.createElement('textarea');
+  txt.innerHTML = str;
+  return txt.value;
+}
+
+/**
  * Format an ISO date string to a human-readable form.
  *
  * @param {string} dateStr ISO date string.
@@ -152,7 +165,7 @@ const Tag = memo(function Tag({
 const ArticleCard = memo(function ArticleCard({
   article
 }) {
-  const summary = article.ai_summary || article.excerpt || '';
+  const summary = decodeEntities(article.ai_summary || article.excerpt || '');
   const tagSource = article.tags || article.categories || '';
   const tags = tagSource ? tagSource.split(',').map(t => t.trim()).filter(Boolean).slice(0, 5) : [];
   const handleClick = useCallback(() => {
@@ -179,7 +192,7 @@ const ArticleCard = memo(function ArticleCard({
     onClick: handleClick,
     target: "_blank",
     rel: "noopener noreferrer"
-  }, article.title)), summary && /*#__PURE__*/React.createElement("p", {
+  }, decodeEntities(article.title))), summary && /*#__PURE__*/React.createElement("p", {
     className: "pn-article-excerpt"
   }, summary), article.author && /*#__PURE__*/React.createElement("span", {
     className: "pn-author"
