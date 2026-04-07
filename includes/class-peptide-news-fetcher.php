@@ -89,23 +89,15 @@ class Peptide_News_Fetcher {
             'new_stored'   => $stored,
         ) );
 
-        // Scrape OG images for articles missing thumbnails.
-        $og_scraped = $this->scrape_missing_thumbnails();
-
         // Run AI analysis on newly fetched articles (keywords + summary).
         if ( class_exists( 'Peptide_News_LLM' ) && Peptide_News_LLM::is_enabled() ) {
             $llm_batch_size = absint( get_option( 'peptide_news_llm_max_articles', 10 ) );
             $llm_processed  = Peptide_News_LLM::process_unanalyzed( $llm_batch_size );
 
-            // Generate AI thumbnails for articles still missing images.
-            $ai_thumbs = Peptide_News_LLM::generate_missing_thumbnails( $llm_batch_size );
-
             // Append LLM stats to the fetch log.
             $fetch_log = get_option( 'peptide_news_last_fetch' );
             if ( is_array( $fetch_log ) ) {
-                $fetch_log['ai_processed']  = $llm_processed;
-                $fetch_log['og_scraped']    = $og_scraped;
-                $fetch_log['ai_thumbnails'] = $ai_thumbs;
+                $fetch_log['ai_processed'] = $llm_processed;
                 update_option( 'peptide_news_last_fetch', $fetch_log );
             }
         }
@@ -143,19 +135,6 @@ class Peptide_News_Fetcher {
             $items     = $feed->get_items( 0, $max_items );
 
             foreach ( $items as $item ) {
-                $thumbnail = '';
-
-                // Try enclosure first.
-                $enclosure = $item->get_enclosure();
-                if ( $enclosure && $enclosure->get_link() ) {
-                    $thumbnail = $enclosure->get_link();
-                }
-
-                // Try media:thumbnail or media:content.
-                if ( empty( $thumbnail ) ) {
-                    $thumbnail = $this->extract_image_from_content( $item->get_content() );
-                }
-
                 $pub_date = $item->get_date( 'Y-m-d H:i:s' );
                 if ( empty( $pub_date ) ) {
                     $pub_date = current_time( 'mysql' );
@@ -171,7 +150,7 @@ class Peptide_News_Fetcher {
                     'excerpt'       => wp_trim_words( wp_strip_all_tags( $item->get_description() ), 40 ),
                     'content'       => wp_kses_post( $item->get_content() ),
                     'author'        => sanitize_text_field( $item->get_author() ? $item->get_author()->get_name() : '' ),
-                    'thumbnail_url' => esc_url_raw( $thumbnail ),
+                    'thumbnail_url' => '',
                     'published_at'  => $pub_date,
                     'categories'    => $this->extract_categories( $item ),
                     'tags'          => '',
@@ -230,7 +209,7 @@ class Peptide_News_Fetcher {
                 'excerpt'       => wp_trim_words( sanitize_text_field( $item['description'] ?? '' ), 40 ),
                 'content'       => wp_kses_post( $item['content'] ?? '' ),
                 'author'        => sanitize_text_field( $item['author'] ?? '' ),
-                'thumbnail_url' => esc_url_raw( $item['urlToImage'] ?? '' ),
+                'thumbnail_url' => '',
                 'published_at'  => $pub_date,
                 'categories'    => '',
                 'tags'          => '',
@@ -304,270 +283,6 @@ class Peptide_News_Fetcher {
     }
 
     /**
-     * Scrape Open Graph images for articles that have no thumbnail.
-     *
-     * Fetches the article URL and extracts og:image, twitter:image,
-     * or other meta image tags.
-     *
-     * @return int Number of articles updated with scraped thumbnails.
-     */
-    private function scrape_missing_thumbnails() {
-        global $wpdb;
-
-        $table    = $wpdb->prefix . 'peptide_news_articles';
-        $articles = $wpdb->get_results(
-            "SELECT id, source, source_url, title
-             FROM {$table}
-             WHERE is_active = 1
-               AND ( thumbnail_url = '' OR thumbnail_url IS NULL )
-             ORDER BY fetched_at DESC
-             LIMIT 20"
-        );
-
-        if ( empty( $articles ) ) {
-            return 0;
-        }
-
-        $aggregators = array( 'news.google.com', 'news.yahoo.com', 'msn.com' );
-        $updated     = 0;
-
-        foreach ( $articles as $article ) {
-            $domain = $this->extract_domain( $article->source_url );
-
-            // Skip aggregator URLs — they can't be scraped for OG images.
-            // These will be handled by AI image generation instead.
-            if ( in_array( $domain, $aggregators, true ) ) {
-                $wpdb->update(
-                    $table,
-                    array( 'thumbnail_url' => '_no_image' ),
-                    array( 'id' => $article->id ),
-                    array( '%s' ),
-                    array( '%d' )
-                );
-                continue;
-            }
-
-            // Direct OG scrape for non-aggregator URLs.
-            $image_url = $this->scrape_og_image( $article->source_url );
-
-            if ( ! empty( $image_url ) ) {
-                $local_path = $this->download_thumbnail( $image_url, $article->id, $article->title );
-
-                $update_data = array( 'thumbnail_url' => $image_url );
-                if ( $local_path ) {
-                    $update_data['thumbnail_local'] = $local_path;
-                }
-
-                $wpdb->update( $table, $update_data, array( 'id' => $article->id ) );
-                $updated++;
-            } else {
-                $wpdb->update(
-                    $table,
-                    array( 'thumbnail_url' => '_no_image' ),
-                    array( 'id' => $article->id ),
-                    array( '%s' ),
-                    array( '%d' )
-                );
-            }
-
-            usleep( 300000 );
-        }
-
-        if ( $updated > 0 ) {
-            $this->clear_article_cache();
-        }
-
-        return $updated;
-    }
-
-    /**
-     * Scrape Open Graph / meta image tags from a URL.
-     *
-     * @param string $url The article URL to scrape.
-     * @return string Image URL or empty string.
-     */
-    private function scrape_og_image( $url ) {
-        if ( empty( $url ) ) {
-            return '';
-        }
-
-        $response = wp_remote_get( $url, array(
-            'timeout'    => 15,
-            'user-agent' => 'Mozilla/5.0 (compatible; PeptideNewsBot/1.0)',
-            'headers'    => array(
-                'Accept' => 'text/html',
-            ),
-            // Only fetch the first ~200KB for efficiency.
-            'stream'  => false,
-            'limit_response_size' => 200000,
-        ) );
-
-        if ( is_wp_error( $response ) ) {
-            $this->log_error( 'OG scrape failed for ' . $url . ': ' . $response->get_error_message() );
-            return '';
-        }
-
-        $status = wp_remote_retrieve_response_code( $response );
-        if ( $status < 200 || $status >= 400 ) {
-            return '';
-        }
-
-        $html = wp_remote_retrieve_body( $response );
-
-        if ( empty( $html ) ) {
-            return '';
-        }
-
-        // Try meta tags in priority order.
-        $patterns = array(
-            // Open Graph image.
-            '/<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']/is',
-            '/<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image["\']/is',
-            // Twitter card image.
-            '/<meta[^>]+name=["\']twitter:image["\'][^>]+content=["\']([^"\']+)["\']/is',
-            '/<meta[^>]+content=["\']([^"\']+)["\'][^>]+name=["\']twitter:image["\']/is',
-            // Schema.org image.
-            '/<meta[^>]+itemprop=["\']image["\'][^>]+content=["\']([^"\']+)["\']/is',
-        );
-
-        foreach ( $patterns as $pattern ) {
-            if ( preg_match( $pattern, $html, $matches ) ) {
-                $image_url = trim( $matches[1] );
-
-                // Validate it looks like an image URL.
-                if ( $this->is_valid_image_url( $image_url ) ) {
-                    return esc_url_raw( $image_url );
-                }
-            }
-        }
-
-        return '';
-    }
-
-    /**
-     * Check if a URL appears to be a valid image.
-     *
-     * @param string $url
-     * @return bool
-     */
-    private function is_valid_image_url( $url ) {
-        if ( empty( $url ) || strlen( $url ) < 10 ) {
-            return false;
-        }
-
-        // Must start with http(s).
-        if ( ! preg_match( '/^https?:\/\//i', $url ) ) {
-            return false;
-        }
-
-        // Reject obvious non-image URLs (tracking pixels, spacers, etc.)
-        $blocklist = array( '1x1', 'pixel', 'spacer', 'blank', 'transparent', 'data:image' );
-        $url_lower = strtolower( $url );
-        foreach ( $blocklist as $blocked ) {
-            if ( strpos( $url_lower, $blocked ) !== false ) {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    /**
-     * Download an image and store it in the WP uploads directory.
-     *
-     * @param string $image_url External image URL.
-     * @param int    $article_id Article ID for unique naming.
-     * @param string $title      Article title for alt text / file naming.
-     * @return string|false Local relative path on success, false on failure.
-     */
-    private function download_thumbnail( $image_url, $article_id, $title = '' ) {
-        // SSRF prevention: validate URL before fetching.
-        if ( ! wp_http_validate_url( $image_url ) ) {
-            $this->log_error( 'Invalid image URL (SSRF protection) for article ' . $article_id . ': ' . $image_url );
-            return false;
-        }
-
-        $upload_dir = wp_upload_dir();
-        $target_dir = $upload_dir['basedir'] . '/peptide-news-thumbs';
-
-        // Create directory if it doesn't exist.
-        if ( ! file_exists( $target_dir ) ) {
-            wp_mkdir_p( $target_dir );
-        }
-
-        $max_file_size = 5 * 1024 * 1024; // 5 MB.
-
-        $response = wp_remote_get( $image_url, array(
-            'timeout'             => 20,
-            'user-agent'          => 'Mozilla/5.0 (compatible; PeptideNewsBot/1.0)',
-            'limit_response_size' => $max_file_size,
-        ) );
-
-        if ( is_wp_error( $response ) ) {
-            $this->log_error( 'Thumbnail download failed for article ' . $article_id . ': ' . $response->get_error_message() );
-            return false;
-        }
-
-        $body = wp_remote_retrieve_body( $response );
-        if ( empty( $body ) || strlen( $body ) < 1000 || strlen( $body ) > $max_file_size ) {
-            // Too small to be a real image, or exceeds size limit.
-            return false;
-        }
-
-        $content_type = wp_remote_retrieve_header( $response, 'content-type' );
-        $extension    = $this->get_extension_from_content_type( $content_type );
-
-        if ( ! $extension ) {
-            // Try to detect from the image data.
-            $finfo = new finfo( FILEINFO_MIME_TYPE );
-            $mime  = $finfo->buffer( $body );
-            $extension = $this->get_extension_from_content_type( $mime );
-        }
-
-        if ( ! $extension ) {
-            return false;
-        }
-
-        $filename = 'pn-thumb-' . $article_id . '.' . $extension;
-        $filepath = $target_dir . '/' . $filename;
-
-        // Write the file.
-        $result = file_put_contents( $filepath, $body );
-
-        if ( false === $result ) {
-            $this->log_error( 'Failed to write thumbnail file: ' . $filepath );
-            return false;
-        }
-
-        // Set secure file permissions.
-        chmod( $filepath, 0644 );
-
-        // Return the relative path from uploads base.
-        return 'peptide-news-thumbs/' . $filename;
-    }
-
-    /**
-     * Map content type to file extension.
-     *
-     * @param string $content_type
-     * @return string|false
-     */
-    private function get_extension_from_content_type( $content_type ) {
-        $map = array(
-            'image/jpeg'    => 'jpg',
-            'image/jpg'     => 'jpg',
-            'image/png'     => 'png',
-            'image/gif'     => 'gif',
-            'image/webp'    => 'webp',
-            'image/svg+xml' => 'svg',
-        );
-
-        $content_type = strtolower( trim( explode( ';', $content_type )[0] ) );
-
-        return isset( $map[ $content_type ] ) ? $map[ $content_type ] : false;
-    }
-
-    /**
      * Clear all article transient caches.
      */
     private function clear_article_cache() {
@@ -581,29 +296,6 @@ class Peptide_News_Fetcher {
                 $wpdb->esc_like( '_transient_timeout_peptide_news_articles_' ) . '%'
             )
         );
-    }
-
-    /**
-     * Try to extract an image URL from HTML content.
-     *
-     * @param string $content
-     * @return string
-     */
-    private function extract_image_from_content( $content ) {
-        if ( empty( $content ) ) {
-            return '';
-        }
-
-        if ( preg_match( '/<img[^>]+src=["\']([^"\']+)["\']/', $content, $matches ) ) {
-            return $matches[1];
-        }
-
-        // Check for media:content or media:thumbnail.
-        if ( preg_match( '/url=["\']([^"\']+)["\']/', $content, $matches ) ) {
-            return $matches[1];
-        }
-
-        return '';
     }
 
     /**
@@ -734,127 +426,6 @@ class Peptide_News_Fetcher {
         }
 
         return ! empty( $final_url ) ? $final_url : false;
-    }
-
-
-    /**
-     * Backfill thumbnails for existing articles that have none.
-     *
-     * Attempts OG scraping for non-aggregator URLs, then uses AI image
-     * generation for any remaining articles without thumbnails.
-     *
-     * @return array Summary with counts and diagnostic samples.
-     */
-    public function backfill_article_thumbnails() {
-        global $wpdb;
-
-        $table       = $wpdb->prefix . 'peptide_news_articles';
-        $aggregators = array( 'news.google.com', 'news.yahoo.com', 'msn.com' );
-
-        // Reset sentinels so we retry everything.
-        $wpdb->query(
-            "UPDATE {$table}
-             SET thumbnail_url = ''
-             WHERE thumbnail_url = '_no_image'
-               AND is_active = 1"
-        );
-
-        $articles = $wpdb->get_results(
-            "SELECT id, source, source_url, title, excerpt, ai_summary, tags, categories
-             FROM {$table}
-             WHERE is_active = 1
-               AND ( thumbnail_url = '' OR thumbnail_url IS NULL )
-               AND ( thumbnail_local = '' OR thumbnail_local IS NULL )
-             ORDER BY fetched_at DESC
-             LIMIT 20"
-        );
-
-        $result = array(
-            'total'     => count( $articles ),
-            'scraped'   => 0,
-            'generated' => 0,
-            'failed'    => 0,
-            'samples'   => array(),
-        );
-
-        if ( empty( $articles ) ) {
-            return $result;
-        }
-
-        // Phase 1: OG scrape non-aggregator URLs.
-        foreach ( $articles as $article ) {
-            $domain = $this->extract_domain( $article->source_url );
-            if ( in_array( $domain, $aggregators, true ) ) {
-                continue; // Skip — will be handled by AI generation.
-            }
-
-            $image_url = $this->scrape_og_image( $article->source_url );
-            if ( ! empty( $image_url ) ) {
-                $local_path  = $this->download_thumbnail( $image_url, $article->id, $article->title );
-                $update_data = array( 'thumbnail_url' => $image_url );
-                if ( $local_path ) {
-                    $update_data['thumbnail_local'] = $local_path;
-                }
-                $wpdb->update( $table, $update_data, array( 'id' => $article->id ) );
-                $result['scraped']++;
-
-                if ( count( $result['samples'] ) < 5 ) {
-                    $result['samples'][] = array(
-                        'id'     => $article->id,
-                        'title'  => mb_substr( $article->title, 0, 60 ),
-                        'method' => 'og_scrape',
-                        'status' => 'ok',
-                    );
-                }
-            }
-
-            usleep( 300000 );
-        }
-
-        // Phase 2: AI generation for articles still missing thumbnails.
-        if ( class_exists( 'Peptide_News_LLM' ) && Peptide_News_LLM::is_enabled() ) {
-            $ai_generated = Peptide_News_LLM::generate_missing_thumbnails( 20 );
-            $result['generated'] = $ai_generated;
-        }
-
-        // Count remaining failures.
-        $still_missing = $wpdb->get_var(
-            "SELECT COUNT(*)
-             FROM {$table}
-             WHERE is_active = 1
-               AND ( thumbnail_url = '' OR thumbnail_url IS NULL )
-               AND ( thumbnail_local = '' OR thumbnail_local IS NULL )"
-        );
-        $result['failed'] = (int) $still_missing;
-
-        // Mark remaining as '_no_image' so cron doesn't retry every cycle.
-        $wpdb->query(
-            "UPDATE {$table}
-             SET thumbnail_url = '_no_image'
-             WHERE is_active = 1
-               AND ( thumbnail_url = '' OR thumbnail_url IS NULL )
-               AND ( thumbnail_local = '' OR thumbnail_local IS NULL )"
-        );
-
-        if ( $result['scraped'] > 0 || $result['generated'] > 0 ) {
-            $this->clear_article_cache();
-        }
-
-        return $result;
-    }
-
-    /**
-     * AJAX handler for the thumbnail backfill action.
-     */
-    public function ajax_backfill_thumbnails() {
-        check_ajax_referer( 'peptide_news_admin', 'nonce' );
-
-        if ( ! current_user_can( 'manage_options' ) ) {
-            wp_send_json_error( 'Unauthorized', 403 );
-        }
-
-        $result = $this->backfill_article_thumbnails();
-        wp_send_json_success( $result );
     }
 
     /**

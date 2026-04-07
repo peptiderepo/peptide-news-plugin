@@ -33,19 +33,18 @@ $total_pages = ceil( $total / $per_page );
         <thead>
             <tr>
                 <th style="width:4%">ID</th>
-                <th style="width:20%"><?php esc_html_e( 'Title', 'peptide-news' ); ?></th>
-                <th style="width:8%"><?php esc_html_e( 'Source', 'peptide-news' ); ?></th>
+                <th style="width:28%"><?php esc_html_e( 'Title', 'peptide-news' ); ?></th>
+                <th style="width:10%"><?php esc_html_e( 'Source', 'peptide-news' ); ?></th>
                 <th style="width:15%"><?php esc_html_e( 'AI Keywords', 'peptide-news' ); ?></th>
-                <th style="width:20%"><?php esc_html_e( 'AI Summary', 'peptide-news' ); ?></th>
+                <th style="width:23%"><?php esc_html_e( 'AI Summary', 'peptide-news' ); ?></th>
                 <th style="width:8%"><?php esc_html_e( 'Published', 'peptide-news' ); ?></th>
                 <th style="width:8%"><?php esc_html_e( 'Fetched', 'peptide-news' ); ?></th>
-                <th style="width:5%"><?php esc_html_e( 'Thumb', 'peptide-news' ); ?></th>
                 <th style="width:4%"><?php esc_html_e( 'Active', 'peptide-news' ); ?></th>
             </tr>
         </thead>
         <tbody>
             <?php if ( empty( $articles ) ) : ?>
-                <tr><td colspan="9"><?php esc_html_e( 'No articles found. Run a fetch first.', 'peptide-news' ); ?></td></tr>
+                <tr><td colspan="8"><?php esc_html_e( 'No articles found. Run a fetch first.', 'peptide-news' ); ?></td></tr>
             <?php else : ?>
                 <?php foreach ( $articles as $article ) : ?>
                     <tr>
@@ -72,21 +71,6 @@ $total_pages = ceil( $total / $per_page );
                         </td>
                         <td><?php echo esc_html( wp_date( 'M j, Y', strtotime( $article->published_at ) ) ); ?></td>
                         <td><?php echo esc_html( wp_date( 'M j, Y', strtotime( $article->fetched_at ) ) ); ?></td>
-                        <td>
-                            <?php
-                            $thumb_src = '';
-                            if ( ! empty( $article->thumbnail_url ) && '_no_image' !== $article->thumbnail_url ) {
-                                $thumb_src = $article->thumbnail_url;
-                            } elseif ( ! empty( $article->thumbnail_local ) ) {
-                                $upload_dir = wp_upload_dir();
-                                $thumb_src = $upload_dir['baseurl'] . '/' . $article->thumbnail_local;
-                            }
-                            if ( $thumb_src ) : ?>
-                                <img src="<?php echo esc_url( $thumb_src ); ?>" alt="" style="width:50px;height:50px;object-fit:cover;border-radius:4px;" />
-                            <?php else : ?>
-                                <span class="dashicons dashicons-format-image" style="color:#ccc;font-size:24px;"></span>
-                            <?php endif; ?>
-                        </td>
                         <td><?php echo $article->is_active ? '<span style="color:green;">&#10003;</span>' : '<span style="color:#ccc;">&#10007;</span>'; ?></td>
                     </tr>
                 <?php endforeach; ?>

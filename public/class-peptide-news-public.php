@@ -2,10 +2,11 @@
 /**
  * Public-facing functionality.
  *
- * Registers the [peptide_news] shortcode, the sidebar widget,
- * and handles AJAX click tracking.
+ * Registers the [peptide_news] shortcode which renders a React-powered
+ * news feed, the sidebar widget, and handles AJAX click tracking.
  *
  * @since 1.0.0
+ * @since 2.0.0 Rewritten to use React frontend.
  */
 class Peptide_News_Public {
 
@@ -35,21 +36,19 @@ class Peptide_News_Public {
 
     /**
      * Register front-end JS (enqueued on demand by the shortcode/widget).
+     *
+     * Loads React (from WordPress core), the feed component, and
+     * passes configuration via wp_localize_script.
      */
     public function enqueue_scripts() {
+        // React feed component (depends on WP-bundled React).
         wp_register_script(
-            $this->plugin_name,
-            PEPTIDE_NEWS_PLUGIN_URL . 'public/js/public-script.js',
-            array( 'jquery' ),
+            $this->plugin_name . '-feed',
+            PEPTIDE_NEWS_PLUGIN_URL . 'public/js/peptide-news-feed.js',
+            array( 'react', 'react-dom' ),
             $this->version,
             true
         );
-
-        wp_localize_script( $this->plugin_name, 'peptideNewsPublic', array(
-            'ajax_url'   => admin_url( 'admin-ajax.php' ),
-            'nonce'      => wp_create_nonce( 'peptide_news_track' ),
-            'session_id' => $this->get_or_create_session_id(),
-        ) );
     }
 
     /**
@@ -69,111 +68,35 @@ class Peptide_News_Public {
     /**
      * Render the [peptide_news] shortcode.
      *
+     * Outputs a mount-point div for the React feed component and
+     * enqueues all required assets. Configuration is passed to JS
+     * via a localized script object.
+     *
      * @param array $atts Shortcode attributes.
      * @return string HTML output.
      */
     public function render_shortcode( $atts ) {
         $atts = shortcode_atts( array(
-            'count'  => get_option( 'peptide_news_articles_count', 10 ),
-            'layout' => 'list', // card | compact | list
+            'count' => get_option( 'peptide_news_articles_count', 10 ),
         ), $atts, 'peptide_news' );
 
-        $articles = $this->get_articles( absint( $atts['count'] ) );
-
-        if ( empty( $articles ) ) {
-            return '<div class="pn-no-articles"><p>' . esc_html__( 'No peptide news articles available yet. Check back soon!', 'peptide-news' ) . '</p></div>';
-        }
+        $count = absint( $atts['count'] );
 
         // Enqueue assets only when the shortcode is actually rendered.
         wp_enqueue_style( $this->plugin_name );
-        wp_enqueue_script( $this->plugin_name );
+        wp_enqueue_script( $this->plugin_name . '-feed' );
 
-        $fallback_thumb = get_option( 'peptide_news_thumbnail_fallback', '' );
-        $layout         = sanitize_key( $atts['layout'] );
+        // Pass configuration to the React component.
+        wp_localize_script( $this->plugin_name . '-feed', 'peptideNewsFeed', array(
+            'restUrl'   => esc_url_raw( rest_url( 'peptide-news/v1/' ) ),
+            'ajaxUrl'   => admin_url( 'admin-ajax.php' ),
+            'nonce'     => wp_create_nonce( 'peptide_news_track' ),
+            'sessionId' => $this->get_or_create_session_id(),
+            'count'     => $count,
+        ) );
 
-        ob_start();
-        ?>
-        <div class="pn-news-feed pn-layout-<?php echo esc_attr( $layout ); ?>">
-            <?php foreach ( $articles as $article ) :
-                $thumb = '';
-                if ( ! empty( $article->thumbnail_url ) && '_no_image' !== $article->thumbnail_url ) {
-                    $thumb = $article->thumbnail_url;
-                } elseif ( ! empty( $article->thumbnail_local ) ) {
-                    $upload_dir = wp_upload_dir();
-                    $thumb = $upload_dir['baseurl'] . '/' . $article->thumbnail_local;
-                }
-                if ( empty( $thumb ) ) {
-                    $thumb = $fallback_thumb;
-                }
-                $date  = wp_date( 'M j, Y', strtotime( $article->published_at ) );
-            ?>
-                <article class="pn-article" data-article-id="<?php echo esc_attr( $article->id ); ?>">
-                    <?php if ( ! empty( $thumb ) ) : ?>
-                        <div class="pn-article-thumb">
-                            <a href="<?php echo esc_url( $article->source_url ); ?>"
-                               class="pn-track-click"
-                               data-article-id="<?php echo esc_attr( $article->id ); ?>"
-                               target="_blank" rel="noopener noreferrer">
-                                <img src="<?php echo esc_url( $thumb ); ?>"
-                                     alt="<?php echo esc_attr( $article->title ); ?>"
-                                     loading="lazy" />
-                            </a>
-                        </div>
-                    <?php endif; ?>
-
-                    <div class="pn-article-content">
-                        <div class="pn-article-meta">
-                            <span class="pn-source"><?php echo esc_html( $article->source ); ?></span>
-                            <span class="pn-separator">&middot;</span>
-                            <time class="pn-date" datetime="<?php echo esc_attr( $article->published_at ); ?>">
-                                <?php echo esc_html( $date ); ?>
-                            </time>
-                        </div>
-
-                        <h3 class="pn-article-title">
-                            <a href="<?php echo esc_url( $article->source_url ); ?>"
-                               class="pn-track-click"
-                               data-article-id="<?php echo esc_attr( $article->id ); ?>"
-                               target="_blank" rel="noopener noreferrer">
-                                <?php echo esc_html( $article->title ); ?>
-                            </a>
-                        </h3>
-
-                        <?php
-                        // Prefer AI summary over raw excerpt.
-                        $display_text = ! empty( $article->ai_summary ) ? $article->ai_summary : ( $article->excerpt ?? '' );
-                        if ( ! empty( $display_text ) ) : ?>
-                            <p class="pn-article-excerpt">
-                                <?php echo esc_html( $display_text ); ?>
-                            </p>
-                        <?php endif; ?>
-
-                        <?php if ( ! empty( $article->author ) ) : ?>
-                            <span class="pn-author">
-                                <?php echo esc_html( $article->author ); ?>
-                            </span>
-                        <?php endif; ?>
-
-                        <?php
-                        // Show AI-extracted keyword tags if available, fall back to categories.
-                        $tag_source = ! empty( $article->tags ) ? $article->tags : ( $article->categories ?? '' );
-                        if ( ! empty( $tag_source ) ) : ?>
-                            <div class="pn-tags">
-                                <?php
-                                $tag_items = array_map( 'trim', explode( ',', $tag_source ) );
-                                foreach ( array_slice( $tag_items, 0, 5 ) as $tag_item ) :
-                                    if ( empty( $tag_item ) ) continue;
-                                ?>
-                                    <span class="pn-tag"><?php echo esc_html( $tag_item ); ?></span>
-                                <?php endforeach; ?>
-                            </div>
-                        <?php endif; ?>
-                    </div>
-                </article>
-            <?php endforeach; ?>
-        </div>
-        <?php
-        return ob_get_clean();
+        // React mount point — the component renders into this div.
+        return '<div data-peptide-news-feed></div>';
     }
 
     /**
@@ -215,46 +138,7 @@ class Peptide_News_Public {
     }
 
     /**
-     * Get active articles from the database.
-     *
-     * @param int $count Number of articles.
-     * @return array
-     */
-    private function get_articles( $count ) {
-        global $wpdb;
-
-        $table = $wpdb->prefix . 'peptide_news_articles';
-
-        // Use transient cache to avoid DB hits on every page load.
-        $cache_key = 'peptide_news_articles_' . $count;
-        $cached    = get_transient( $cache_key );
-
-        if ( false !== $cached ) {
-            return $cached;
-        }
-
-        $articles = $wpdb->get_results( $wpdb->prepare(
-            "SELECT id, source, source_url, title, excerpt, ai_summary, author, thumbnail_url,
-                    thumbnail_local, published_at, categories, tags
-             FROM {$table}
-             WHERE is_active = 1
-             ORDER BY published_at DESC
-             LIMIT %d",
-            $count
-        ) );
-
-        // Cache for 5 minutes.
-        set_transient( $cache_key, $articles, 5 * MINUTE_IN_SECONDS );
-
-        return $articles;
-    }
-
-    /**
      * Generate or retrieve a session ID for visitor tracking.
-     *
-     * Sets the cookie in PHP if it doesn't exist so the value
-     * is consistent between the server-side localized script data
-     * and the client-side cookie.
      *
      * @return string
      */
@@ -265,7 +149,6 @@ class Peptide_News_Public {
 
         $session_id = wp_generate_uuid4();
 
-        // Set a 30-minute session cookie (matches JS-side behaviour).
         if ( ! headers_sent() ) {
             setcookie(
                 'pn_session_id',
@@ -274,7 +157,7 @@ class Peptide_News_Public {
                     'expires'  => time() + 1800,
                     'path'     => '/',
                     'secure'   => is_ssl(),
-                    'httponly' => false,   // JS needs read access for sendBeacon.
+                    'httponly' => false,
                     'samesite' => 'Lax',
                 )
             );
@@ -313,7 +196,7 @@ class Peptide_News_Widget extends WP_Widget {
         }
 
         $public = new Peptide_News_Public( 'peptide-news', PEPTIDE_NEWS_VERSION );
-        echo $public->render_shortcode( array( 'count' => $count, 'layout' => 'compact' ) );
+        echo $public->render_shortcode( array( 'count' => $count ) );
 
         echo $args['after_widget'];
     }

@@ -1,0 +1,28 @@
+{
+  "name": "repo",
+  "version": "1.0.0",
+  "description": "A WordPress plugin that aggregates and displays the latest peptide research news from multiple sources, with built-in click analytics and trend reporting.",
+  "main": "index.js",
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://peptiderepo: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@github.com/peptiderepo/peptide-news-plugin.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/peptiderepo/peptide-news-plugin/issues"
+  },
+  "homepage": "https://github.com/peptiderepo/peptide-news-plugin#readme",
+  "devDependencies": {
+    "@babel/cli": "^7.28.6",
+    "@babel/core": "^7.29.0",
+    "@babel/preset-react": "^7.28.5"
+  }
+}
