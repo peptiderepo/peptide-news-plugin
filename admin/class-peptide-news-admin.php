@@ -753,7 +753,7 @@ class Peptide_News_Admin {
 
         ?>
         <script>
-        (function($) {
+        jQuery(document).ready(function($) {
             var currentPage = 1;
 
             function levelBadge(level) {
@@ -830,7 +830,7 @@ class Peptide_News_Admin {
 
             // Initial load.
             loadLogs(1);
-        })(jQuery);
+        });
         </script>
         <?php
 
