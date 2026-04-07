@@ -568,6 +568,13 @@ class Peptide_News_Admin {
         echo '</button>';
         echo '<span id="peptide-backfill-result" style="margin-left:10px;"></span>';
 
+        // Generate AI Summaries button.
+        echo '<br style="margin-bottom:8px;">';
+        echo '<button type="button" id="peptide-generate-summaries" class="button button-primary" style="margin-top:8px;">';
+        echo esc_html__( 'Generate AI Summaries', 'peptide-news' );
+        echo '</button>';
+        echo '<span id="peptide-summary-result" style="margin-left:10px;"></span>';
+
         ?>
         <script>
         (function($) {
@@ -589,6 +596,50 @@ class Peptide_News_Admin {
                     $btn.prop('disabled', false).text('<?php echo esc_js( __( 'Fix Article Sources', 'peptide-news' ) ); ?>');
                     $result.text('Request failed.');
                 });
+            });
+
+            // Generate AI Summaries — loops in batches until all articles are done.
+            $('#peptide-generate-summaries').on('click', function() {
+                var $btn = $(this), $result = $('#peptide-summary-result');
+                var totalProcessed = 0;
+
+                $btn.prop('disabled', true);
+                $result.text('<?php echo esc_js( __( 'Starting...', 'peptide-news' ) ); ?>');
+
+                function runBatch() {
+                    $btn.text('<?php echo esc_js( __( 'Generating...', 'peptide-news' ) ); ?>');
+                    $.post(peptideNewsAdmin.ajax_url, {
+                        action: 'peptide_news_generate_summaries',
+                        nonce: peptideNewsAdmin.admin_nonce
+                    }, function(response) {
+                        if (response.success) {
+                            totalProcessed += response.data.processed;
+                            var remaining = response.data.remaining;
+                            $result.text(totalProcessed + ' summarized, ' + remaining + ' remaining...');
+
+                            if (remaining > 0 && response.data.processed > 0) {
+                                // Continue with next batch.
+                                runBatch();
+                            } else {
+                                // Done — either all processed or no progress (error).
+                                $btn.prop('disabled', false).text('<?php echo esc_js( __( 'Generate AI Summaries', 'peptide-news' ) ); ?>');
+                                if (remaining === 0) {
+                                    $result.text('Done! ' + totalProcessed + ' article(s) summarized.');
+                                } else {
+                                    $result.text(totalProcessed + ' summarized. ' + remaining + ' could not be processed — check the debug log.');
+                                }
+                            }
+                        } else {
+                            $btn.prop('disabled', false).text('<?php echo esc_js( __( 'Generate AI Summaries', 'peptide-news' ) ); ?>');
+                            $result.text('Error: ' + (response.data || 'Unknown error'));
+                        }
+                    }).fail(function() {
+                        $btn.prop('disabled', false).text('<?php echo esc_js( __( 'Generate AI Summaries', 'peptide-news' ) ); ?>');
+                        $result.text('Request failed. ' + totalProcessed + ' completed before failure.');
+                    });
+                }
+
+                runBatch();
             });
 
         })(jQuery);

@@ -114,22 +114,26 @@ class Peptide_News_LLM {
      * Process all unanalyzed articles (called after a fetch cycle).
      *
      * Includes a time-based guard to prevent cron timeouts and
-     * respects the admin-configured max articles per cycle.
+     * respects the admin-configured max articles per cycle unless
+     * $override_limit is true (used by the manual bulk-generate button).
      *
-     * @param int $batch_size  Max articles to process per run.
-     * @return int              Number of articles successfully processed.
+     * @param int  $batch_size      Max articles to process per run.
+     * @param bool $override_limit  When true, ignore the admin "max per cycle" cap.
+     * @return int                   Number of articles successfully processed.
      */
-    public static function process_unanalyzed( $batch_size = 10 ) {
+    public static function process_unanalyzed( $batch_size = 10, $override_limit = false ) {
         if ( ! self::is_enabled() ) {
             return 0;
         }
 
-        // Respect admin cost-control setting.
-        $max_per_cycle = absint( get_option( 'peptide_news_llm_max_articles', 10 ) );
-        if ( $max_per_cycle < 1 ) {
-            $max_per_cycle = 10;
+        if ( ! $override_limit ) {
+            // Respect admin cost-control setting for automated cron runs.
+            $max_per_cycle = absint( get_option( 'peptide_news_llm_max_articles', 10 ) );
+            if ( $max_per_cycle < 1 ) {
+                $max_per_cycle = 10;
+            }
+            $batch_size = min( $batch_size, $max_per_cycle );
         }
-        $batch_size = min( $batch_size, $max_per_cycle );
 
         global $wpdb;
         $table = $wpdb->prefix . 'peptide_news_articles';
@@ -368,6 +372,63 @@ class Peptide_News_LLM {
                 array( '%d' )
             );
         }
+    }
+
+    /**
+     * AJAX handler: bulk-generate AI summaries for articles that are missing them.
+     *
+     * Processes up to 50 articles per request. Returns the count of articles
+     * processed and remaining so the admin UI can loop until done.
+     *
+     * @since 2.0.1
+     */
+    public static function ajax_generate_summaries() {
+        check_ajax_referer( 'peptide_news_admin', 'nonce' );
+
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( 'Unauthorized', 403 );
+        }
+
+        if ( ! self::is_enabled() ) {
+            wp_send_json_error( 'AI Analysis is not enabled. Please enable it and set an OpenRouter API key in Peptide News → Settings.' );
+        }
+
+        global $wpdb;
+        $table = $wpdb->prefix . 'peptide_news_articles';
+
+        // Count how many still need processing.
+        $remaining = (int) $wpdb->get_var(
+            "SELECT COUNT(*) FROM {$table}
+             WHERE is_active = 1
+               AND ( ai_summary = '' OR ai_summary IS NULL )"
+        );
+
+        if ( $remaining < 1 ) {
+            wp_send_json_success( array(
+                'processed' => 0,
+                'remaining' => 0,
+                'message'   => 'All articles already have AI summaries.',
+            ) );
+        }
+
+        // Process a generous batch — the 120-second timeout guard inside
+        // process_unanalyzed() will stop early if needed. Override the
+        // per-cycle limit since this is a manual admin action.
+        $batch_size = min( 50, $remaining );
+        $processed  = self::process_unanalyzed( $batch_size, true );
+
+        // Recount remaining after this batch.
+        $still_remaining = (int) $wpdb->get_var(
+            "SELECT COUNT(*) FROM {$table}
+             WHERE is_active = 1
+               AND ( ai_summary = '' OR ai_summary IS NULL )"
+        );
+
+        wp_send_json_success( array(
+            'processed' => $processed,
+            'remaining' => $still_remaining,
+            'message'   => sprintf( '%d article(s) summarized, %d remaining.', $processed, $still_remaining ),
+        ) );
     }
 
     /**
