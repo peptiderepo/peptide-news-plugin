@@ -94,7 +94,7 @@ async function fetchArticles(restUrl, page, count, signal) {
   const cacheKey = `${restUrl}:${page}:${count}`;
   const cached = getCached(cacheKey);
   if (cached) return cached;
-  const url = `${restUrl}articles?count=${count}&page=${page}`;
+  const url = `${restUrl}articles?count=${count}&page=${page}&_=${Date.now()}`;
   const resp = await fetch(url, {
     signal
   });
