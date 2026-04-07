@@ -13,7 +13,7 @@ class Peptide_News_LLM {
     const API_URL = 'https://openrouter.ai/api/v1/chat/completions';
 
     /** @var int Maximum retries for rate-limited requests. */
-    const MAX_RETRIES = 3;
+    const MAX_RETRIES = 1;
 
     /** @var int Maximum elapsed seconds before stopping a batch. */
     const BATCH_TIMEOUT = 120;
@@ -255,7 +255,7 @@ class Peptide_News_LLM {
 
         while ( $retries <= self::MAX_RETRIES ) {
             $response = wp_remote_post( self::API_URL, array(
-                'timeout' => 30,
+                'timeout' => 15,
                 'headers' => array(
                     'Authorization' => 'Bearer ' . $api_key,
                     'Content-Type'  => 'application/json',
@@ -411,11 +411,11 @@ class Peptide_News_LLM {
             ) );
         }
 
-        // Process a small batch per request to stay within PHP's
-        // max_execution_time (often 30s on shared hosting). The JS UI
-        // loops automatically until all articles are done.
-        $batch_size = min( 5, $remaining );
-        $processed  = self::process_unanalyzed( $batch_size, true );
+        // Process ONE article per request to stay within PHP's
+        // max_execution_time (often 30s on shared hosting). Each article
+        // requires 2 API calls (keywords + summary) which can take 10-20s
+        // with free models. The JS UI loops automatically until done.
+        $processed = self::process_unanalyzed( 1, true );
 
         // Recount remaining after this batch.
         $still_remaining = (int) $wpdb->get_var(
