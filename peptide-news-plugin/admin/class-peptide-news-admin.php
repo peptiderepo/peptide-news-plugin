@@ -626,7 +626,11 @@ class Peptide_News_Admin {
                                 if (remaining === 0) {
                                     $result.text('Done! ' + totalProcessed + ' article(s) summarized.');
                                 } else {
-                                    $result.text(totalProcessed + ' summarized. ' + remaining + ' could not be processed — check the debug log.');
+                                    var errMsg = totalProcessed + ' summarized. ' + remaining + ' could not be processed.';
+                                    if (response.data.errors && response.data.errors.length > 0) {
+                                        errMsg += ' Error: ' + response.data.errors[0];
+                                    }
+                                    $result.text(errMsg);
                                 }
                             }
                         } else {

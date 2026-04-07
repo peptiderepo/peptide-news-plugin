@@ -58,6 +58,7 @@ class Peptide_News_LLM {
             'keywords' => '',
             'summary'  => '',
             'success'  => false,
+            'errors'   => array(),
         );
 
         $api_key = get_option( 'peptide_news_openrouter_api_key', '' );
@@ -75,9 +76,12 @@ class Peptide_News_LLM {
                 $results['keywords'] = self::sanitize_keywords( $keywords_result );
                 $any_success = true;
             } else {
+                $err_msg = 'Keywords (' . $keywords_model . '): ' . $keywords_result->get_error_message();
+                $results['errors'][] = $err_msg;
                 self::log_error( 'Keyword extraction failed for article ' . $article->id . ': ' . $keywords_result->get_error_message() );
             }
         } elseif ( $need_keywords ) {
+            $results['errors'][] = 'Invalid keywords model ID: ' . $keywords_model;
             self::log_error( 'Invalid keywords model ID: ' . $keywords_model );
         }
 
@@ -94,9 +98,12 @@ class Peptide_News_LLM {
                 $results['summary'] = sanitize_textarea_field( wp_strip_all_tags( $summary_result ) );
                 $any_success = true;
             } else {
+                $err_msg = 'Summary (' . $summary_model . '): ' . $summary_result->get_error_message();
+                $results['errors'][] = $err_msg;
                 self::log_error( 'Summarization failed for article ' . $article->id . ': ' . $summary_result->get_error_message() );
             }
         } elseif ( $need_summary ) {
+            $results['errors'][] = 'Invalid summary model ID: ' . $summary_model;
             self::log_error( 'Invalid summary model ID: ' . $summary_model );
         }
 
@@ -150,6 +157,7 @@ class Peptide_News_LLM {
         ) );
 
         $processed = 0;
+        $last_errors = array();
         $start_time = time();
 
         foreach ( $articles as $article ) {
@@ -164,6 +172,11 @@ class Peptide_News_LLM {
             // Only count successful processing.
             if ( ! empty( $result['success'] ) ) {
                 $processed++;
+            }
+
+            // Track errors for debugging.
+            if ( ! empty( $result['errors'] ) ) {
+                $last_errors = $result['errors'];
             }
 
             // Small delay to avoid rate limiting.
@@ -182,6 +195,7 @@ class Peptide_News_LLM {
             'time'      => current_time( 'mysql' ),
             'processed' => $processed,
             'attempted' => count( $articles ),
+            'errors'    => $last_errors,
         ) );
 
         return $processed;
@@ -431,10 +445,15 @@ class Peptide_News_LLM {
                AND ( ai_summary = '' OR ai_summary IS NULL )"
         );
 
+        // Include error details from the last processing run for debugging.
+        $last_run = get_option( 'peptide_news_last_llm_process', array() );
+        $errors   = isset( $last_run['errors'] ) ? $last_run['errors'] : array();
+
         wp_send_json_success( array(
             'processed' => $processed,
             'remaining' => $still_remaining,
             'message'   => sprintf( '%d article(s) summarized, %d remaining.', $processed, $still_remaining ),
+            'errors'    => $errors,
         ) );
     }
 
