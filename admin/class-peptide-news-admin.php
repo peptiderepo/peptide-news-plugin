@@ -599,9 +599,13 @@ class Peptide_News_Admin {
             });
 
             // Generate AI Summaries — loops in batches until all articles are done.
+            // Uses a 3-second delay between batches to respect free-tier rate limits,
+            // and retries up to 3 times when a batch fails before giving up.
             $('#peptide-generate-summaries').on('click', function() {
                 var $btn = $(this), $result = $('#peptide-summary-result');
                 var totalProcessed = 0;
+                var retries = 0;
+                var maxRetries = 3;
 
                 $btn.prop('disabled', true);
                 $result.text('<?php echo esc_js( __( 'Starting...', 'peptide-news' ) ); ?>');
@@ -618,10 +622,17 @@ class Peptide_News_Admin {
                             $result.text(totalProcessed + ' summarized, ' + remaining + ' remaining...');
 
                             if (remaining > 0 && response.data.processed > 0) {
-                                // Continue with next batch.
-                                runBatch();
+                                // Success — reset retry counter and continue after a delay
+                                // to respect the free-tier rate limit (20 req/min).
+                                retries = 0;
+                                setTimeout(runBatch, 3000);
+                            } else if (remaining > 0 && retries < maxRetries) {
+                                // No progress — likely rate limited. Wait longer and retry.
+                                retries++;
+                                $result.text(totalProcessed + ' summarized, ' + remaining + ' remaining... (rate limited, retrying in 10s, attempt ' + retries + '/' + maxRetries + ')');
+                                setTimeout(runBatch, 10000);
                             } else {
-                                // Done — either all processed or no progress (error).
+                                // Done — either all processed or exhausted retries.
                                 $btn.prop('disabled', false).text('<?php echo esc_js( __( 'Generate AI Summaries', 'peptide-news' ) ); ?>');
                                 if (remaining === 0) {
                                     $result.text('Done! ' + totalProcessed + ' article(s) summarized.');
@@ -638,8 +649,14 @@ class Peptide_News_Admin {
                             $result.text('Error: ' + (response.data || 'Unknown error'));
                         }
                     }).fail(function() {
-                        $btn.prop('disabled', false).text('<?php echo esc_js( __( 'Generate AI Summaries', 'peptide-news' ) ); ?>');
-                        $result.text('Request failed. ' + totalProcessed + ' completed before failure.');
+                        if (retries < maxRetries) {
+                            retries++;
+                            $result.text(totalProcessed + ' completed. Request failed, retrying in 10s... (attempt ' + retries + '/' + maxRetries + ')');
+                            setTimeout(runBatch, 10000);
+                        } else {
+                            $btn.prop('disabled', false).text('<?php echo esc_js( __( 'Generate AI Summaries', 'peptide-news' ) ); ?>');
+                            $result.text('Request failed. ' + totalProcessed + ' completed before failure.');
+                        }
                     });
                 }
 
