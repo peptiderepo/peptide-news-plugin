@@ -411,10 +411,10 @@ class Peptide_News_LLM {
             ) );
         }
 
-        // Process a generous batch — the 120-second timeout guard inside
-        // process_unanalyzed() will stop early if needed. Override the
-        // per-cycle limit since this is a manual admin action.
-        $batch_size = min( 50, $remaining );
+        // Process a small batch per request to stay within PHP's
+        // max_execution_time (often 30s on shared hosting). The JS UI
+        // loops automatically until all articles are done.
+        $batch_size = min( 5, $remaining );
         $processed  = self::process_unanalyzed( $batch_size, true );
 
         // Recount remaining after this batch.
