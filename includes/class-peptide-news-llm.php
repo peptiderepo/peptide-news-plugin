@@ -407,10 +407,15 @@ class Peptide_News_LLM {
             wp_send_json_error( 'AI Analysis is not enabled. Please enable it and set an OpenRouter API key in Peptide News → Settings.' );
         }
 
-        // Auto-correct known incorrect model name (missing "-preview" suffix).
+        // Auto-correct known broken model names to a working free model.
+        $broken_models = array(
+            'qwen/qwen3.6-plus:free',
+            'qwen/qwen3.6-plus-preview:free',
+        );
+        $working_model = 'google/gemma-3-27b-it:free';
         foreach ( array( 'peptide_news_llm_keywords_model', 'peptide_news_llm_summary_model' ) as $opt ) {
-            if ( get_option( $opt, '' ) === 'qwen/qwen3.6-plus:free' ) {
-                update_option( $opt, 'qwen/qwen3.6-plus-preview:free' );
+            if ( in_array( get_option( $opt, '' ), $broken_models, true ) ) {
+                update_option( $opt, $working_model );
             }
         }
 
