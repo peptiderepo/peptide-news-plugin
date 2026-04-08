@@ -248,10 +248,22 @@ class Peptide_News_Rest_API {
         // Fallback 2: strip trailing nbsp-separated publisher names.
         // Google News RSS excerpts use double non-breaking space + publisher name
         // when the source field doesn't match (e.g., source = "news.google.com").
-        $nbsp_pattern = '/(?:\x{00A0}{1,2}|\s{2,})[A-Z][A-Za-z0-9\s.\'\-]{0,50}$/u';
-        $candidate = preg_replace( $nbsp_pattern, '', $text );
-        if ( $candidate !== $text && strlen( $candidate ) > strlen( $text ) * 0.4 ) {
-            return rtrim( $candidate );
+        // Uses string search instead of regex to avoid UTF-8/PCRE edge cases.
+        $double_nbsp = $nbsp . $nbsp;
+        $nbsp_pos    = strrpos( $text, $double_nbsp );
+        if ( false !== $nbsp_pos ) {
+            $after = substr( $text, $nbsp_pos + strlen( $double_nbsp ) );
+        } else {
+            $nbsp_pos = strrpos( $text, $nbsp );
+            if ( false !== $nbsp_pos ) {
+                $after = substr( $text, $nbsp_pos + strlen( $nbsp ) );
+            }
+        }
+        if ( false !== $nbsp_pos && $nbsp_pos > strlen( $text ) * 0.4 ) {
+            // Only strip if what follows looks like a publisher name (< 60 chars, starts uppercase).
+            if ( ! empty( $after ) && strlen( $after ) < 60 && preg_match( '/^[A-Z]/u', $after ) ) {
+                return rtrim( substr( $text, 0, $nbsp_pos ) );
+            }
         }
 
         return $text;
