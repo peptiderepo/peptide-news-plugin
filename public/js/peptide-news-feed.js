@@ -149,25 +149,12 @@ function trackClick(articleId) {
 /* ── Components ─────────────────────────────────────────────────────── */
 
 /**
- * Single keyword tag pill.
- */
-const Tag = memo(function Tag({
-  label
-}) {
-  return /*#__PURE__*/React.createElement("span", {
-    className: "pn-tag"
-  }, label);
-});
-
-/**
  * Single article card.
  */
 const ArticleCard = memo(function ArticleCard({
   article
 }) {
   const summary = decodeEntities(article.ai_summary || article.excerpt || '');
-  const tagSource = article.tags || article.categories || '';
-  const tags = tagSource ? tagSource.split(',').map(t => t.trim()).filter(Boolean).slice(0, 5) : [];
   const handleClick = useCallback(() => {
     trackClick(article.id);
   }, [article.id]);
@@ -196,14 +183,7 @@ const ArticleCard = memo(function ArticleCard({
     className: "pn-article-excerpt"
   }, summary), article.author && /*#__PURE__*/React.createElement("span", {
     className: "pn-author"
-  }, article.author), tags.length > 0 && /*#__PURE__*/React.createElement("div", {
-    className: "pn-tags",
-    role: "list",
-    "aria-label": "Keywords"
-  }, tags.map(tag => /*#__PURE__*/React.createElement(Tag, {
-    key: tag,
-    label: tag
-  }))));
+  }, article.author));
 });
 
 /**
@@ -229,15 +209,7 @@ function LoadingSkeleton({
     className: "pn-skeleton-line pn-skeleton-excerpt"
   }), /*#__PURE__*/React.createElement("div", {
     className: "pn-skeleton-line pn-skeleton-excerpt-short"
-  }), /*#__PURE__*/React.createElement("div", {
-    className: "pn-skeleton-tags"
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "pn-skeleton-tag"
-  }), /*#__PURE__*/React.createElement("div", {
-    className: "pn-skeleton-tag"
-  }), /*#__PURE__*/React.createElement("div", {
-    className: "pn-skeleton-tag"
-  })))));
+  }))));
 }
 
 /**
