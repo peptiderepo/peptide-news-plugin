@@ -143,14 +143,30 @@ class Peptide_News_Rest_API {
              $offset
         ) );
 
-        // Strip source name from titles and summaries (e.g. "Article Title - Toronto Star").
+        // Strip source name from titles, excerpts, and summaries.
+        $nbsp = "\xC2\xA0"; // UTF-8 non-breaking space.
         foreach ( $articles as $article ) {
-            $article->title = $this->strip_source_suffix( $article->title, $article->source, $article->source_url );
-            if ( ! empty( $article->ai_summary ) ) {
-                $article->ai_summary = $this->strip_source_suffix( $article->ai_summary, $article->source, $article->source_url );
-            }
-            if ( ! empty( $article->excerpt ) ) {
-                $article->excerpt = $this->strip_source_suffix( $article->excerpt, $article->source, $article->source_url );
+            $fields = array( 'title', 'excerpt', 'ai_summary' );
+            foreach ( $fields as $field ) {
+                if ( empty( $article->$field ) ) {
+                    continue;
+                }
+                // First pass: use strip_source_suffix for known patterns.
+                $article->$field = $this->strip_source_suffix( $article->$field, $article->source, $article->source_url );
+
+                // Second pass: catch any remaining nbsp-separated publisher names
+                // (e.g., "...text\xC2\xA0\xC2\xA0Publisher Name" from Google News RSS).
+                $text = $article->$field;
+                $pos  = strrpos( $text, $nbsp . $nbsp );
+                if ( false === $pos ) {
+                    $pos = strrpos( $text, $nbsp );
+                }
+                if ( false !== $pos && $pos > 10 ) {
+                    $candidate = rtrim( substr( $text, 0, $pos ) );
+                    if ( strlen( $candidate ) > strlen( $text ) * 0.3 ) {
+                        $article->$field = $candidate;
+                    }
+                }
             }
         }
 
