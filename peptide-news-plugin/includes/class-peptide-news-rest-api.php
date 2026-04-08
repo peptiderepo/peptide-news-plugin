@@ -145,12 +145,12 @@ class Peptide_News_Rest_API {
 
         // Strip source name from titles and summaries (e.g. "Article Title - Toronto Star").
         foreach ( $articles as $article ) {
-            $article->title = $this->strip_source_suffix( $article->title, $article->source );
+            $article->title = $this->strip_source_suffix( $article->title, $article->source, $article->source_url );
             if ( ! empty( $article->ai_summary ) ) {
-                $article->ai_summary = $this->strip_source_suffix( $article->ai_summary, $article->source );
+                $article->ai_summary = $this->strip_source_suffix( $article->ai_summary, $article->source, $article->source_url );
             }
             if ( ! empty( $article->excerpt ) ) {
-                $article->excerpt = $this->strip_source_suffix( $article->excerpt, $article->source );
+                $article->excerpt = $this->strip_source_suffix( $article->excerpt, $article->source, $article->source_url );
             }
         }
 
@@ -166,28 +166,66 @@ class Peptide_News_Rest_API {
     }
 
     /**
-     * Strip the source name from the end of a string.
+     * Strip the source/publisher name from the end of a string.
      *
      * Handles common separator patterns like " - Source", " | Source",
-     * " — Source", and " – Source".
+     * " — Source", and " – Source". Uses case-insensitive matching against
+     * the source field. Also strips generic trailing publisher names
+     * (1–5 words after a separator) that commonly appear in RSS titles.
      *
-     * @param string $text   The text to clean.
-     * @param string $source The source name to strip.
+     * @param string $text       The text to clean.
+     * @param string $source     The source name to strip.
+     * @param string $source_url The source URL (used to extract domain-based publisher names).
      * @return string Cleaned text.
      */
-    private function strip_source_suffix( $text, $source ) {
-        if ( empty( $source ) || empty( $text ) ) {
+    private function strip_source_suffix( $text, $source, $source_url = '' ) {
+        if ( empty( $text ) ) {
             return $text;
         }
 
-        // Match common separators: " - ", " | ", " — ", " – "
         $separators = array( ' - ', ' | ', ' — ', ' – ', ' // ' );
 
-        foreach ( $separators as $sep ) {
-            $suffix = $sep . $source;
-            if ( substr( $text, -strlen( $suffix ) ) === $suffix ) {
-                return rtrim( substr( $text, 0, -strlen( $suffix ) ) );
+        // Build list of source names to try matching against.
+        $source_names = array();
+        if ( ! empty( $source ) ) {
+            $source_names[] = $source;
+        }
+
+        // Extract domain-based publisher name (e.g., "News-Medical" from "news-medical.net").
+        if ( ! empty( $source_url ) ) {
+            $host = wp_parse_url( $source_url, PHP_URL_HOST );
+            if ( $host ) {
+                // Remove www. prefix and TLD.
+                $host = preg_replace( '/^www\./', '', $host );
+                $parts = explode( '.', $host );
+                if ( count( $parts ) >= 2 ) {
+                    // Use the main domain part (e.g., "news-medical" from "news-medical.net").
+                    $domain_name = $parts[ count( $parts ) - 2 ];
+                    // Convert hyphens to spaces for matching ("news-medical" → "news medical").
+                    $source_names[] = str_replace( '-', ' ', $domain_name );
+                    $source_names[] = $domain_name;
+                }
             }
+        }
+
+        // Try exact (case-insensitive) match against known source names.
+        foreach ( $source_names as $name ) {
+            foreach ( $separators as $sep ) {
+                $suffix = $sep . $name;
+                $suffix_len = strlen( $suffix );
+                if ( strlen( $text ) > $suffix_len && strcasecmp( substr( $text, -$suffix_len ), $suffix ) === 0 ) {
+                    return rtrim( substr( $text, 0, -$suffix_len ) );
+                }
+            }
+        }
+
+        // Fallback: strip trailing " - Short Publisher Name" patterns (1-5 words).
+        // Only strips if the part after the separator looks like a publisher name
+        // (starts with uppercase, no sentence-ending punctuation).
+        $pattern = '/\s+[-–—|]\s+[A-Z][A-Za-z0-9\s.\'-]{0,50}$/u';
+        $candidate = preg_replace( $pattern, '', $text );
+        if ( $candidate !== $text && strlen( $candidate ) > strlen( $text ) * 0.4 ) {
+            return rtrim( $candidate );
         }
 
         return $text;
