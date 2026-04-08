@@ -67,56 +67,52 @@ jobs:
           # Normal push (fast-forward).
           git push origin deploy
 
-  # -- Deploy to Hostinger via SSH --
-  # SSH into Hostinger and git pull the deploy branch directly into
-  # the correct plugin directory (peptide-news-plugin).
+  # -- Deploy to Hostinger via rsync --
+  # Rsync the deploy branch content from the GH Actions runner directly
+  # to the plugin directory on Hostinger (avoids needing git access on server).
   deploy:
     name: Deploy to Hostinger
     runs-on: ubuntu-latest
     needs: sync-deploy-branch
     environment: production
     steps:
-      - name: Pull deploy branch on Hostinger
-        uses: appleboy/ssh-action@v1
+      - name: Checkout deploy branch
+        uses: actions/checkout@v4
         with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USERNAME }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          port: ${{ secrets.SSH_PORT }}
-          script: |
-            # Ensure GitHub host key is trusted (one-time setup).
-            mkdir -p ~/.ssh
-            ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
+          ref: deploy
 
-            PLUGIN_DIR="$HOME/domains/peptiderepo.com/public_html/wp-content/plugins/peptide-news-plugin"
-            REPO_URL="git@github.com:peptiderepo/peptide-news-plugin.git"
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p ${{ secrets.SSH_PORT }} ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
 
-            if [ -d "$PLUGIN_DIR/.git" ]; then
-              # Existing clone -- just pull latest.
-              cd "$PLUGIN_DIR"
-              git fetch origin deploy
-              git reset --hard origin/deploy
-            else
-              # First deploy -- clone the deploy branch.
-              rm -rf "$PLUGIN_DIR"
-              git clone -b deploy "$REPO_URL" "$PLUGIN_DIR"
-            fi
-
-            echo "Deployed to $PLUGIN_DIR"
-            ls -la "$PLUGIN_DIR"
+      - name: Deploy via rsync
+        run: |
+          rsync -avz --delete \
+            --exclude='.git' \
+            --exclude='.github' \
+            -e "ssh -i ~/.ssh/deploy_key -p ${{ secrets.SSH_PORT }} -o StrictHostKeyChecking=no" \
+            ./ ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }}:/home/${{ secrets.SSH_USERNAME }}/domains/peptiderepo.com/public_html/wp-content/plugins/peptide-news-plugin/
 
       - name: Purge LiteSpeed Cache
         if: success()
         run: |
-          # Trigger a cache purge via the WordPress REST API.
-          if [ -n "${{ secrets.WP_APP_PASSWORD }}" ]; then
-            curl -s -X POST \
-              -u "${{ secrets.WP_ADMIN_USER }}:${{ secrets.WP_APP_PASSWORD }}" \
-              "${{ secrets.WP_SITE_URL }}/wp-json/peptide-news/v1/cache-purge" \
-              --max-time 15 || echo "Cache purge skipped (endpoint not available)"
-          else
-            echo "No WP_APP_PASSWORD set -- skipping remote cache purge."
-          fi
+          ssh -i ~/.ssh/deploy_key -p ${{ secrets.SSH_PORT }} -o StrictHostKeyChecking=no \
+            ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }} << 'ENDSSH'
+            CACHE_DIR="/home/${{ secrets.SSH_USERNAME }}/domains/peptiderepo.com/public_html/wp-content/litespeed"
+            if [ -d "$CACHE_DIR" ]; then
+              rm -rf "$CACHE_DIR"/*
+              echo "LiteSpeed cache purged."
+            fi
+            touch "/home/${{ secrets.SSH_USERNAME }}/domains/peptiderepo.com/public_html/.lscache_purge" 2>/dev/null || true
+            echo "Cache purge signal sent."
+          ENDSSH
+
+      - name: Cleanup
+        if: always()
+        run: rm -f ~/.ssh/deploy_key
 
       - name: Deploy summary
         run: |
@@ -124,5 +120,5 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "- **Branch:** \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- **Commit:** \`${GITHUB_SHA::7}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Method:** SSH direct deploy (git pull on Hostinger)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Method:** rsync from deploy branch to Hostinger" >> $GITHUB_STEP_SUMMARY
           echo "- **Deployed to:** ${{ secrets.WP_SITE_URL || 'peptiderepo.com' }}" >> $GITHUB_STEP_SUMMARY
