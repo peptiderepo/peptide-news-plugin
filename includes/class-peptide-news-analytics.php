@@ -23,6 +23,11 @@ class Peptide_News_Analytics {
 
         $ip = isset( $meta['ip'] ) ? $meta['ip'] : self::get_client_ip();
 
+        // Skip recording if no valid IP is available.
+        if ( null === $ip ) {
+            return false;
+        }
+
         // Optionally anonymize IP (GDPR-friendly).
         if ( get_option( 'peptide_news_anonymize_ip', 1 ) ) {
             $ip = self::anonymize_ip( $ip );
@@ -287,7 +292,7 @@ class Peptide_News_Analytics {
     /**
      * Get the client IP address.
      *
-     * @return string
+     * @return string|null
      */
     private static function get_client_ip() {
         $ip_keys = array( 'HTTP_CF_CONNECTING_IP', 'HTTP_X_FORWARDED_FOR', 'HTTP_X_REAL_IP', 'REMOTE_ADDR' );
@@ -302,7 +307,7 @@ class Peptide_News_Analytics {
             }
         }
 
-        return '0.0.0.0';
+        return null;
     }
 
     /**

@@ -124,16 +124,29 @@ class Peptide_News_Rest_API {
     /**
      * GET /articles
      *
-     * Returns active articles with no-cache headers so that
-     * LiteSpeed / CDN layers always serve fresh data.
+     * Returns active articles with server-side transient caching.
+     * Cache is invalidated whenever new articles are stored.
      */
     public function get_articles( $request ) {
         global $wpdb;
 
-        $count  = min( $request->get_param( 'count' ), 100 );
-        $page   = max( $request->get_param( 'page' ), 1 );
-        $offset = ( $page - 1 ) * $count;
+        $count  = absint( min( $request->get_param( 'count' ), 100 ) );
+        $page   = absint( max( $request->get_param( 'page' ), 1 ) );
         $table  = $wpdb->prefix . 'peptide_news_articles';
+
+        // Build cache key from page and count params.
+        $cache_key = 'peptide_news_articles_' . $page . '_' . $count;
+        $cached_response = get_transient( $cache_key );
+        if ( false !== $cached_response ) {
+            return rest_ensure_response( $cached_response );
+        }
+
+        $total = $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$table} WHERE is_active = %d", 1 ) );
+
+        // Ensure page doesn't exceed max available pages.
+        $max_page = max( 1, (int) ceil( $total / $count ) );
+        $page = min( $page, $max_page );
+        $offset = ( $page - 1 ) * $count;
 
         $articles = $wpdb->get_results( $wpdb->prepare(
             "SELECT id, source, source_url, title, excerpt, ai_summary, author,
@@ -171,21 +184,26 @@ class Peptide_News_Rest_API {
                     }
                 }
             }
+
+            // Escape string fields for REST API output
+            $article->title     = wp_kses_post( $article->title );
+            $article->excerpt   = wp_kses_post( $article->excerpt );
+            $article->ai_summary = wp_kses_post( $article->ai_summary );
+            $article->author    = esc_html( $article->author );
         }
 
-        $total = $wpdb->get_var( "SELECT COUNT(*) FROM {$table} WHERE is_active = 1" );
-
-        $response = rest_ensure_response( array(
+        $data = array(
             'articles'    => $articles,
             'total'       => (int) $total,
             'page'        => $page,
             'per_page'    => $count,
             'total_pages' => ceil( $total / $count ),
-        ) );
+        );
 
-        // Prevent LiteSpeed and browser caches from serving stale article data.
-        $response->header( 'Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0' );
-        $response->header( 'X-LiteSpeed-Cache-Control', 'no-cache' );
+        // Cache the response for 1 hour.
+        set_transient( $cache_key, $data, HOUR_IN_SECONDS );
+
+        $response = rest_ensure_response( $data );
 
         return $response;
     }
@@ -226,6 +244,19 @@ class Peptide_News_Rest_API {
         if ( ! empty( $source ) ) {
             $source_names[] = $source;
         }
+
+        // Get cached source names list to avoid database queries on every API call.
+        $cached_sources = get_transient( 'peptide_news_source_names' );
+        if ( false === $cached_sources ) {
+            global $wpdb;
+            $table = $wpdb->prefix . 'peptide_news_articles';
+            $cached_sources = $wpdb->get_col( "SELECT DISTINCT source FROM {$table} WHERE source != '' ORDER BY source" );
+            if ( ! is_array( $cached_sources ) ) {
+                $cached_sources = array();
+            }
+            set_transient( 'peptide_news_source_names', $cached_sources, HOUR_IN_SECONDS );
+        }
+        $source_names = array_merge( $source_names, $cached_sources );
 
         // Extract domain-based publisher name (e.g., "News-Medical" from "news-medical.net").
         if ( ! empty( $source_url ) ) {

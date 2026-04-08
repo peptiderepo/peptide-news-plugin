@@ -32,14 +32,14 @@ $total_pages = ceil( $total / $per_page );
     <table class="wp-list-table widefat fixed striped">
         <thead>
             <tr>
-                <th style="width:5%">ID</th>
-                <th style="width:30%"><?php esc_html_e( 'Title', 'peptide-news' ); ?></th>
-                <th style="width:12%"><?php esc_html_e( 'Source', 'peptide-news' ); ?></th>
-                <th style="width:15%"><?php esc_html_e( 'Categories', 'peptide-news' ); ?></th>
-                <th style="width:10%"><?php esc_html_e( 'Published', 'peptide-news' ); ?></th>
-                <th style="width:10%"><?php esc_html_e( 'Fetched', 'peptide-news' ); ?></th>
-                <th style="width:8%"><?php esc_html_e( 'Thumb', 'peptide-news' ); ?></th>
-                <th style="width:5%"><?php esc_html_e( 'Active', 'peptide-news' ); ?></th>
+                <th style="width:4%">ID</th>
+                <th style="width:28%"><?php esc_html_e( 'Title', 'peptide-news' ); ?></th>
+                <th style="width:10%"><?php esc_html_e( 'Source', 'peptide-news' ); ?></th>
+                <th style="width:15%"><?php esc_html_e( 'AI Keywords', 'peptide-news' ); ?></th>
+                <th style="width:23%"><?php esc_html_e( 'AI Summary', 'peptide-news' ); ?></th>
+                <th style="width:8%"><?php esc_html_e( 'Published', 'peptide-news' ); ?></th>
+                <th style="width:8%"><?php esc_html_e( 'Fetched', 'peptide-news' ); ?></th>
+                <th style="width:4%"><?php esc_html_e( 'Active', 'peptide-news' ); ?></th>
             </tr>
         </thead>
         <tbody>
@@ -55,16 +55,22 @@ $total_pages = ceil( $total / $per_page );
                             </a>
                         </td>
                         <td><?php echo esc_html( $article->source ); ?></td>
-                        <td><?php echo esc_html( $article->categories ); ?></td>
-                        <td><?php echo esc_html( wp_date( 'M j, Y', strtotime( $article->published_at ) ) ); ?></td>
-                        <td><?php echo esc_html( wp_date( 'M j, Y', strtotime( $article->fetched_at ) ) ); ?></td>
                         <td>
-                            <?php if ( ! empty( $article->thumbnail_url ) ) : ?>
-                                <img src="<?php echo esc_url( $article->thumbnail_url ); ?>" alt="" style="width:50px;height:50px;object-fit:cover;border-radius:4px;" />
+                            <?php if ( ! empty( $article->tags ) ) : ?>
+                                <span style="font-size:12px;line-height:1.4;"><?php echo esc_html( wp_trim_words( $article->tags, 10 ) ); ?></span>
                             <?php else : ?>
-                                <span class="dashicons dashicons-format-image" style="color:#ccc;font-size:24px;"></span>
+                                <span style="color:#999;font-style:italic;"><?php esc_html_e( 'Pending', 'peptide-news' ); ?></span>
                             <?php endif; ?>
                         </td>
+                        <td>
+                            <?php if ( ! empty( $article->ai_summary ) ) : ?>
+                                <span style="font-size:12px;line-height:1.4;" title="<?php echo esc_attr( $article->ai_summary ); ?>"><?php echo esc_html( wp_trim_words( $article->ai_summary, 15 ) ); ?></span>
+                            <?php else : ?>
+                                <span style="color:#999;font-style:italic;"><?php esc_html_e( 'Pending', 'peptide-news' ); ?></span>
+                            <?php endif; ?>
+                        </td>
+                        <td><?php echo esc_html( wp_date( 'M j, Y', strtotime( $article->published_at ) ) ); ?></td>
+                        <td><?php echo esc_html( wp_date( 'M j, Y', strtotime( $article->fetched_at ) ) ); ?></td>
                         <td><?php echo $article->is_active ? '<span style="color:green;">&#10003;</span>' : '<span style="color:#ccc;">&#10007;</span>'; ?></td>
                     </tr>
                 <?php endforeach; ?>

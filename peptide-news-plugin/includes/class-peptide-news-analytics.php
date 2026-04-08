@@ -23,6 +23,11 @@ class Peptide_News_Analytics {
 
         $ip = isset( $meta['ip'] ) ? $meta['ip'] : self::get_client_ip();
 
+        // Skip recording if no valid IP is available.
+        if ( null === $ip ) {
+            return false;
+        }
+
         // Optionally anonymize IP (GDPR-friendly).
         if ( get_option( 'peptide_news_anonymize_ip', 1 ) ) {
             $ip = self::anonymize_ip( $ip );
@@ -249,7 +254,7 @@ class Peptide_News_Analytics {
             "SELECT a.source,
                     COUNT(DISTINCT a.id) AS article_count,
                     SUM(s.click_count) AS total_clicks,
-                    ROUND(SUM(s.click_count) / COUNT(DISTINCT a.id), 1) AS avg_clicks_per_article
+                    ROUND(IFNULL(SUM(s.click_count) / NULLIF(COUNT(DISTINCT a.id), 0), 0), 1) AS avg_clicks_per_article
              FROM {$stats_table} s
              INNER JOIN {$articles_table} a ON a.id = s.article_id
              WHERE s.stat_date BETWEEN %s AND %s
@@ -272,7 +277,6 @@ class Peptide_News_Analytics {
 
         $clicks_table   = $wpdb->prefix . 'peptide_news_clicks';
         $articles_table = $wpdb->prefix . 'peptide_news_articles';
-
         return $wpdb->get_results( $wpdb->prepare(
             "SELECT c.clicked_at, a.title, a.source, a.source_url, a.categories,
                     c.referrer_url, c.page_url, c.device_type, c.session_id
@@ -288,7 +292,7 @@ class Peptide_News_Analytics {
     /**
      * Get the client IP address.
      *
-     * @return string
+     * @return string|null
      */
     private static function get_client_ip() {
         $ip_keys = array( 'HTTP_CF_CONNECTING_IP', 'HTTP_X_FORWARDED_FOR', 'HTTP_X_REAL_IP', 'REMOTE_ADDR' );
@@ -303,7 +307,7 @@ class Peptide_News_Analytics {
             }
         }
 
-        return '0.0.0.0';
+        return null;
     }
 
     /**

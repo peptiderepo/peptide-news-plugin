@@ -1,0 +1,374 @@
+/**
+ * Peptide News Feed — React Frontend
+ *
+ * A clean, accessible news feed component that displays peptide research
+ * articles with title, summary, source, date, and keyword tags.
+ *
+ * @since 2.0.0
+ */
+const { useState, useEffect, useCallback, useRef, memo } = React;
+
+/* ── Constants ──────────────────────────────────────────────────────── */
+
+const ARTICLES_PER_PAGE = 10;
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+/* ── Utilities ──────────────────────────────────────────────────────── */
+
+/**
+ * Format an ISO date string to a human-readable form.
+ *
+ * @param {string} dateStr ISO date string.
+ * @returns {string} Formatted date (e.g., "Apr 5, 2026").
+ */
+function formatDate(dateStr) {
+  if (!dateStr) return '';
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return dateStr;
+  return d.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+}
+
+/**
+ * Calculate a human-readable relative time string.
+ *
+ * @param {string} dateStr ISO date string.
+ * @returns {string} Relative time (e.g., "2 hours ago").
+ */
+function timeAgo(dateStr) {
+  if (!dateStr) return '';
+  const now = Date.now();
+  const then = new Date(dateStr).getTime();
+  if (isNaN(then)) return '';
+  const diffMs = now - then;
+  const diffMin = Math.floor(diffMs / 60000);
+  if (diffMin < 1) return 'Just now';
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `${diffHr}h ago`;
+  const diffDay = Math.floor(diffHr / 24);
+  if (diffDay < 7) return `${diffDay}d ago`;
+  return formatDate(dateStr);
+}
+
+/* ── Simple in-memory cache ─────────────────────────────────────────── */
+
+const apiCache = new Map();
+
+function getCached(key) {
+  const entry = apiCache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.ts > CACHE_TTL_MS) {
+    apiCache.delete(key);
+    return null;
+  }
+  return entry.data;
+}
+
+function setCache(key, data) {
+  apiCache.set(key, { data, ts: Date.now() });
+}
+
+/* ── API Layer ──────────────────────────────────────────────────────── */
+
+/**
+ * Fetch articles from the WP REST API with caching.
+ *
+ * @param {string} restUrl  Base REST URL.
+ * @param {number} page     Page number.
+ * @param {number} count    Articles per page.
+ * @param {AbortSignal} signal  Abort signal for cleanup.
+ * @returns {Promise<Object>} Response data.
+ */
+async function fetchArticles(restUrl, page, count, signal) {
+  const cacheKey = `${restUrl}:${page}:${count}`;
+  const cached = getCached(cacheKey);
+  if (cached) return cached;
+
+  const url = `${restUrl}articles?count=${count}&page=${page}`;
+  const resp = await fetch(url, { signal });
+
+  if (!resp.ok) {
+    throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
+  }
+
+  const data = await resp.json();
+  setCache(cacheKey, data);
+  return data;
+}
+
+/* ── Click Tracking ─────────────────────────────────────────────────── */
+
+/**
+ * Track an outbound click via sendBeacon or fallback XHR.
+ *
+ * @param {number} articleId
+ */
+function trackClick(articleId) {
+  const config = window.peptideNewsFeed || {};
+  if (!config.ajaxUrl || !config.nonce) return;
+
+  const formData = new FormData();
+  formData.append('action', 'peptide_news_track_click');
+  formData.append('nonce', config.nonce);
+  formData.append('article_id', articleId);
+  formData.append('referrer', document.referrer || '');
+  formData.append('page_url', window.location.href);
+  formData.append('session_id', config.sessionId || '');
+
+  if (navigator.sendBeacon) {
+    navigator.sendBeacon(config.ajaxUrl, formData);
+  } else {
+    fetch(config.ajaxUrl, { method: 'POST', body: formData }).catch(() => {});
+  }
+}
+
+/* ── Components ─────────────────────────────────────────────────────── */
+
+/**
+ * Single keyword tag pill.
+ */
+const Tag = memo(function Tag({ label }) {
+  return <span className="pn-tag">{label}</span>;
+});
+
+/**
+ * Single article card.
+ */
+const ArticleCard = memo(function ArticleCard({ article }) {
+  const summary = article.ai_summary || article.excerpt || '';
+  const tagSource = article.tags || article.categories || '';
+  const tags = tagSource
+    ? tagSource.split(',').map((t) => t.trim()).filter(Boolean).slice(0, 5)
+    : [];
+
+  const handleClick = useCallback(() => {
+    trackClick(article.id);
+  }, [article.id]);
+
+  return (
+    <article className="pn-article" role="article">
+      <div className="pn-article-meta">
+        <span className="pn-source">{article.source}</span>
+        <span className="pn-separator" aria-hidden="true">&middot;</span>
+        <time
+          className="pn-date"
+          dateTime={article.published_at}
+          title={formatDate(article.published_at)}
+        >
+          {timeAgo(article.published_at)}
+        </time>
+      </div>
+
+      <h3 className="pn-article-title">
+        <a
+          href={article.source_url}
+          onClick={handleClick}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          {article.title}
+        </a>
+      </h3>
+
+      {summary && (
+        <p className="pn-article-excerpt">{summary}</p>
+      )}
+
+      {article.author && (
+        <span className="pn-author">{article.author}</span>
+      )}
+
+      {tags.length > 0 && (
+        <div className="pn-tags" role="list" aria-label="Keywords">
+          {tags.map((tag) => (
+            <Tag key={tag} label={tag} />
+          ))}
+        </div>
+      )}
+    </article>
+  );
+});
+
+/**
+ * Loading skeleton placeholder.
+ */
+function LoadingSkeleton({ count = 3 }) {
+  return (
+    <div className="pn-loading" aria-busy="true" aria-label="Loading articles">
+      {Array.from({ length: count }, (_, i) => (
+        <div key={i} className="pn-skeleton-card">
+          <div className="pn-skeleton-line pn-skeleton-meta" />
+          <div className="pn-skeleton-line pn-skeleton-title" />
+          <div className="pn-skeleton-line pn-skeleton-excerpt" />
+          <div className="pn-skeleton-line pn-skeleton-excerpt-short" />
+          <div className="pn-skeleton-tags">
+            <div className="pn-skeleton-tag" />
+            <div className="pn-skeleton-tag" />
+            <div className="pn-skeleton-tag" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Error state with retry.
+ */
+function ErrorMessage({ message, onRetry }) {
+  return (
+    <div className="pn-error" role="alert">
+      <p>Unable to load articles. {message}</p>
+      <button className="pn-retry-btn" onClick={onRetry} type="button">
+        Try Again
+      </button>
+    </div>
+  );
+}
+
+/**
+ * Empty state.
+ */
+function EmptyState() {
+  return (
+    <div className="pn-empty">
+      <p>No peptide news articles available yet. Check back soon!</p>
+    </div>
+  );
+}
+
+/**
+ * Pagination controls.
+ */
+const Pagination = memo(function Pagination({ page, totalPages, onPageChange }) {
+  if (totalPages <= 1) return null;
+
+  return (
+    <nav className="pn-pagination" aria-label="Article pages">
+      <button
+        className="pn-page-btn"
+        onClick={() => onPageChange(page - 1)}
+        disabled={page <= 1}
+        aria-label="Previous page"
+        type="button"
+      >
+        &larr; Newer
+      </button>
+
+      <span className="pn-page-info" aria-current="page">
+        Page {page} of {totalPages}
+      </span>
+
+      <button
+        className="pn-page-btn"
+        onClick={() => onPageChange(page + 1)}
+        disabled={page >= totalPages}
+        aria-label="Next page"
+        type="button"
+      >
+        Older &rarr;
+      </button>
+    </nav>
+  );
+});
+
+/* ── Main Feed Component ────────────────────────────────────────────── */
+
+/**
+ * PeptideNewsFeed — root component.
+ *
+ * Reads configuration from window.peptideNewsFeed which is
+ * localized by the PHP shortcode renderer.
+ */
+function PeptideNewsFeed() {
+  const config = window.peptideNewsFeed || {};
+  const restUrl = config.restUrl || '/wp-json/peptide-news/v1/';
+  const perPage = config.count || ARTICLES_PER_PAGE;
+
+  const [articles, setArticles] = useState([]);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  const feedRef = useRef(null);
+
+  const loadArticles = useCallback(
+    async (pageNum, signal) => {
+      setLoading(true);
+      setError(null);
+      try {
+        const data = await fetchArticles(restUrl, pageNum, perPage, signal);
+        setArticles(data.articles || []);
+        setTotalPages(data.total_pages || 1);
+      } catch (err) {
+        if (err.name !== 'AbortError') {
+          setError(err.message || 'Something went wrong.');
+        }
+      } finally {
+        setLoading(false);
+      }
+    },
+    [restUrl, perPage]
+  );
+
+  useEffect(() => {
+    const controller = new AbortController();
+    loadArticles(page, controller.signal);
+    return () => controller.abort();
+  }, [page, loadArticles]);
+
+  const handlePageChange = useCallback((newPage) => {
+    setPage(newPage);
+    // Scroll feed container into view on pagination.
+    if (feedRef.current) {
+      feedRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, []);
+
+  const handleRetry = useCallback(() => {
+    loadArticles(page);
+  }, [page, loadArticles]);
+
+  return (
+    <div className="pn-news-feed" ref={feedRef}>
+      {loading && <LoadingSkeleton count={Math.min(perPage, 5)} />}
+
+      {!loading && error && (
+        <ErrorMessage message={error} onRetry={handleRetry} />
+      )}
+
+      {!loading && !error && articles.length === 0 && <EmptyState />}
+
+      {!loading && !error && articles.length > 0 && (
+        <>
+          <div className="pn-articles-list" role="feed" aria-label="Peptide news articles">
+            {articles.map((article) => (
+              <ArticleCard key={article.id} article={article} />
+            ))}
+          </div>
+
+          <Pagination
+            page={page}
+            totalPages={totalPages}
+            onPageChange={handlePageChange}
+          />
+        </>
+      )}
+    </div>
+  );
+}
+
+/* ── Mount ──────────────────────────────────────────────────────────── */
+
+document.addEventListener('DOMContentLoaded', function () {
+  const containers = document.querySelectorAll('[data-peptide-news-feed]');
+  containers.forEach(function (el) {
+    const root = ReactDOM.createRoot(el);
+    root.render(React.createElement(PeptideNewsFeed));
+  });
+});

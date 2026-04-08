@@ -9,14 +9,20 @@
  */
 class Peptide_News_LLM {
 
-    /** @var string OpenRouter API endpoint. */
-    const API_URL = 'https://openrouter.ai/api/v1/chat/completions';
-
     /** @var int Maximum retries for rate-limited requests. */
     const MAX_RETRIES = 1;
 
     /** @var int Maximum elapsed seconds before stopping a batch. */
     const BATCH_TIMEOUT = 120;
+
+    /**
+     * Get the OpenRouter API URL from options with a hardcoded default.
+     *
+     * @return string
+     */
+    private static function get_api_url() {
+        return get_option( 'peptide_news_llm_api_url', 'https://openrouter.ai/api/v1/chat/completions' );
+    }
 
     /**
      * Check whether LLM processing is enabled and configured.
@@ -276,7 +282,7 @@ class Peptide_News_LLM {
         $backoff = 2; // Initial backoff in seconds.
 
         while ( $retries <= self::MAX_RETRIES ) {
-            $response = wp_remote_post( self::API_URL, array(
+            $response = wp_remote_post( self::get_api_url(), array(
                 'timeout' => 15,
                 'headers' => array(
                     'Authorization' => 'Bearer ' . $api_key,
@@ -406,9 +412,8 @@ class Peptide_News_LLM {
      */
     public static function ajax_generate_summaries() {
         check_ajax_referer( 'peptide_news_admin', 'nonce' );
-
         if ( ! current_user_can( 'manage_options' ) ) {
-            wp_send_json_error( 'Unauthorized', 403 );
+            wp_die( esc_html__( 'Unauthorized', 'peptide-news' ), 403 );
         }
 
         if ( ! self::is_enabled() ) {

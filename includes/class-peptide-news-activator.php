@@ -98,6 +98,9 @@ class Peptide_News_Activator {
         dbDelta( $sql_clicks );
         dbDelta( $sql_daily );
 
+        // Add foreign key constraints if they don't exist.
+        self::add_foreign_key_constraints( $articles_table, $clicks_table, $daily_table );
+
         update_option( 'peptide_news_db_version', PEPTIDE_NEWS_VERSION );
     }
 
@@ -142,6 +145,43 @@ class Peptide_News_Activator {
 
         if ( ! wp_next_scheduled( 'peptide_news_cron_fetch' ) ) {
             wp_schedule_event( time(), $interval, 'peptide_news_cron_fetch' );
+        }
+    }
+
+    /**
+     * Add foreign key constraints to tables.
+     */
+    private static function add_foreign_key_constraints( $articles_table, $clicks_table, $daily_table ) {
+        global $wpdb;
+
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+        $existing_clicks_fk = $wpdb->get_var(
+            $wpdb->prepare(
+                "SELECT CONSTRAINT_NAME FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND COLUMN_NAME = 'article_id' AND REFERENCED_TABLE_NAME IS NOT NULL LIMIT 1",
+                $clicks_table
+            )
+        );
+
+        if ( empty( $existing_clicks_fk ) ) {
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+            $wpdb->query(
+                "ALTER TABLE `{$clicks_table}` ADD CONSTRAINT `fk_clicks_article_id` FOREIGN KEY (`article_id`) REFERENCES `{$articles_table}`(`id`) ON DELETE CASCADE"
+            );
+        }
+
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+        $existing_stats_fk = $wpdb->get_var(
+            $wpdb->prepare(
+                "SELECT CONSTRAINT_NAME FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND COLUMN_NAME = 'article_id' AND REFERENCED_TABLE_NAME IS NOT NULL LIMIT 1",
+                $daily_table
+            )
+        );
+
+        if ( empty( $existing_stats_fk ) ) {
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+            $wpdb->query(
+                "ALTER TABLE `{$daily_table}` ADD CONSTRAINT `fk_stats_article_id` FOREIGN KEY (`article_id`) REFERENCES `{$articles_table}`(`id`) ON DELETE CASCADE"
+            );
         }
     }
 }

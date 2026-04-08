@@ -1,43 +1,57 @@
-name: Deploy to WordPress
+name: Rollback Deployment
 
 on:
-  push:
-    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      commit_sha:
+        description: 'Commit SHA to deploy (leave empty for last green commit)'
+        required: false
+        type: string
 
 permissions:
-  contents: write
-
-# Cancel previous deploys if a new push arrives while one is running.
-concurrency:
-  group: deploy-production
-  cancel-in-progress: true
+  contents: read
+  deployments: write
 
 jobs:
-  # -- Run tests first --
-  test:
-    name: Pre-deploy tests
-    uses: ./.github/workflows/ci.yml
-
-  # -- Push clean plugin files to the deploy branch --
-  sync-deploy-branch:
-    name: Sync deploy branch
+  rollback:
+    name: Rollback to specified commit
     runs-on: ubuntu-latest
-    needs: test
     environment: production
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Sync deploy branch
+      - name: Determine target commit
+        id: target
+        run: |
+          if [ -n "${{ github.event.inputs.commit_sha }}" ]; then
+            TARGET_SHA="${{ github.event.inputs.commit_sha }}"
+          else
+            # Use the most recent commit
+            TARGET_SHA=$(git rev-parse HEAD)
+          fi
+          echo "commit_sha=${TARGET_SHA:0:7}" >> $GITHUB_OUTPUT
+          echo "commit_full=${TARGET_SHA}" >> $GITHUB_OUTPUT
+
+      - name: Validate commit exists
+        run: |
+          if ! git cat-file -e ${{ steps.target.outputs.commit_full }}^{commit} 2>/dev/null; then
+            echo "ERROR: Commit ${{ steps.target.outputs.commit_full }} not found"
+            exit 1
+          fi
+          echo "Target commit found: ${{ steps.target.outputs.commit_full }}"
+
+      - name: Build deploy branch from target commit
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          # Fetch the remote deploy branch (may not exist on first run).
+          # Fetch the remote deploy branch (may not exist).
           git fetch origin deploy:deploy 2>/dev/null || true
 
-          # If deploy branch exists, check it out; otherwise create it.
+          # Check out deploy branch or create it.
           if git rev-parse --verify deploy >/dev/null 2>&1; then
             git checkout deploy
           else
@@ -45,41 +59,28 @@ jobs:
             git rm -rf --cached . > /dev/null 2>&1 || true
           fi
 
-          # Remove all tracked files so we start clean each time.
+          # Remove all tracked files.
           git rm -rf . > /dev/null 2>&1 || true
 
-          # Checkout only the plugin runtime files from main.
-          git checkout main -- \
+          # Checkout only the plugin runtime files from the target commit.
+          git checkout ${{ steps.target.outputs.commit_full }} -- \
             admin/ \
             includes/ \
             languages/ \
             public/ \
-            peptide-news-plugin.php
+            peptide-news-plugin.php \
+            uninstall.php
 
           # Commit only if there are actual changes.
           git add -A
           if git diff-index --quiet HEAD -- 2>/dev/null; then
-            echo "No changes to deploy."
+            echo "No changes to deploy (already at target commit)."
           else
-            git commit -m "Deploy ${GITHUB_SHA::7} from main"
+            git commit -m "Rollback to ${{ steps.target.outputs.commit_sha }} from ${{ github.ref_name }}"
           fi
 
           # Normal push (fast-forward).
           git push origin deploy
-
-  # -- Deploy to Hostinger via rsync --
-  # Rsync the deploy branch content from the GH Actions runner directly
-  # to the plugin directory on Hostinger (avoids needing git access on server).
-  deploy:
-    name: Deploy to Hostinger
-    runs-on: ubuntu-latest
-    needs: sync-deploy-branch
-    environment: production
-    steps:
-      - name: Checkout deploy branch
-        uses: actions/checkout@v4
-        with:
-          ref: deploy
 
       - name: Setup SSH key
         run: |
@@ -118,11 +119,11 @@ jobs:
         if: always()
         run: rm -f ~/.ssh/deploy_key
 
-      - name: Deploy summary
+      - name: Rollback summary
         run: |
-          echo "## Deployment Complete" >> $GITHUB_STEP_SUMMARY
+          echo "## Rollback Complete" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **Branch:** \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Commit:** \`${GITHUB_SHA::7}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Rollback to commit:** \`${{ steps.target.outputs.commit_sha }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- **Method:** rsync from deploy branch to Hostinger" >> $GITHUB_STEP_SUMMARY
           echo "- **Deployed to:** ${{ secrets.WP_SITE_URL || 'peptiderepo.com' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Timestamp:** $(date -u +'%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
