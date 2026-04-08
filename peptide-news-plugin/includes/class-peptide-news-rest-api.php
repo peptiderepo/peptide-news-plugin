@@ -183,7 +183,18 @@ class Peptide_News_Rest_API {
             return $text;
         }
 
-        $separators = array( ' - ', ' | ', ' — ', ' – ', ' // ' );
+        // Decode HTML entities first so &nbsp; becomes actual characters.
+        $text = html_entity_decode( $text, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+
+        // Common separators between title/excerpt and source name.
+        // Includes regular spaces, non-breaking spaces (\xC2\xA0), and typographic dashes.
+        $nbsp = "\xC2\xA0"; // UTF-8 non-breaking space
+        $separators = array(
+            ' - ', ' | ', ' — ', ' – ', ' // ',
+            $nbsp . $nbsp,          // double non-breaking space (Google News RSS excerpts)
+            '  ',                    // double regular space
+            $nbsp,                   // single non-breaking space
+        );
 
         // Build list of source names to try matching against.
         $source_names = array();
