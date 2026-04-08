@@ -157,7 +157,7 @@ class Peptide_News_Public {
                     'expires'  => time() + 1800,
                     'path'     => '/',
                     'secure'   => is_ssl(),
-                    'httponly' => false,
+                    'httponly' => true,
                     'samesite' => 'Lax',
                 )
             );
@@ -202,6 +202,9 @@ class Peptide_News_Widget extends WP_Widget {
     }
 
     public function form( $instance ) {
+        if ( ! is_array( $instance ) ) {
+            $instance = array();
+        }
         $title = isset( $instance['title'] ) ? $instance['title'] : __( 'Peptide News', 'peptide-news' );
         $count = isset( $instance['count'] ) ? absint( $instance['count'] ) : 5;
         ?>

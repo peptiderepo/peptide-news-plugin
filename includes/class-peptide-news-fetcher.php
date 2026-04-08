@@ -83,6 +83,13 @@ class Peptide_News_Fetcher {
             }
         }
 
+        // Clear transient caches after storing new articles.
+        if ( $stored > 0 ) {
+            $this->clear_article_cache();
+            // Invalidate REST API caches.
+            $this->invalidate_rest_api_cache();
+        }
+
         // Log the fetch result.
         update_option( 'peptide_news_last_fetch', array(
             'time'         => current_time( 'mysql' ),
@@ -139,34 +146,61 @@ class Peptide_News_Fetcher {
             }
 
             $max_items = $feed->get_item_quantity( 50 );
-            $items     = $feed->get_items( 0, $max_items );
 
-            foreach ( $items as $item ) {
-                $pub_date = $item->get_date( 'Y-m-d H:i:s' );
-                if ( empty( $pub_date ) ) {
-                    $pub_date = current_time( 'mysql' );
+            // Process items in batches of 10 to manage memory usage.
+            $chunk_size = 10;
+            for ( $offset = 0; $offset < $max_items; $offset += $chunk_size ) {
+                $items = $feed->get_items( $offset, $chunk_size );
+
+                if ( empty( $items ) ) {
+                    break;
                 }
 
-                $article_url = esc_url_raw( $item->get_permalink() );
-                $source_name = $this->resolve_article_source( $item, $feed_url, $article_url );
-
-                $articles[] = array(
-                    'source'        => $source_name,
-                    'source_url'    => $article_url,
-                    'title'         => sanitize_text_field( $item->get_title() ),
-                    'excerpt'       => wp_trim_words( wp_strip_all_tags( $item->get_description() ), 40 ),
-                    'content'       => wp_kses_post( $item->get_content() ),
-                    'author'        => sanitize_text_field( $item->get_author() ? $item->get_author()->get_name() : '' ),
-                    'thumbnail_url' => '',
-                    'published_at'  => $pub_date,
-                    'categories'    => $this->extract_categories( $item ),
-                    'tags'          => '',
-                    'language'      => 'en',
-                );
+                foreach ( $items as $item ) {
+                    $article = $this->process_rss_item( $item, $feed_url );
+                    if ( ! empty( $article ) ) {
+                        $articles[] = $article;
+                    }
+                }
             }
         }
 
         return $articles;
+    }
+
+    /**
+     * Process a single RSS item into an article array.
+     *
+     * @param SimplePie_Item $item
+     * @param string         $feed_url
+     * @return array Article data or empty array if processing failed.
+     */
+    private function process_rss_item( $item, $feed_url ) {
+        $pub_date = $item->get_date( 'Y-m-d H:i:s' );
+        if ( empty( $pub_date ) ) {
+            $pub_date = current_time( 'mysql' );
+        }
+
+        $article_url = esc_url_raw( $item->get_permalink() );
+        if ( empty( $article_url ) ) {
+            return array();
+        }
+
+        $source_name = $this->resolve_article_source( $item, $feed_url, $article_url );
+
+        return array(
+            'source'        => $source_name,
+            'source_url'    => $article_url,
+            'title'         => sanitize_text_field( $item->get_title() ),
+            'excerpt'       => wp_trim_words( wp_strip_all_tags( $item->get_description() ), 40 ),
+            'content'       => wp_kses_post( $item->get_content() ),
+            'author'        => sanitize_text_field( $item->get_author() ? $item->get_author()->get_name() : '' ),
+            'thumbnail_url' => '',
+            'published_at'  => $pub_date,
+            'categories'    => $this->extract_categories( $item ),
+            'tags'          => '',
+            'language'      => 'en',
+        );
     }
 
     /**
@@ -306,6 +340,22 @@ class Peptide_News_Fetcher {
     }
 
     /**
+     * Invalidate REST API response caches matching the articles pattern.
+     */
+    private function invalidate_rest_api_cache() {
+        global $wpdb;
+        $wpdb->query(
+            $wpdb->prepare(
+                "DELETE FROM {$wpdb->options}
+                 WHERE option_name LIKE %s
+                    OR option_name LIKE %s",
+                $wpdb->esc_like( '_transient_peptide_news_articles_' ) . '%',
+                $wpdb->esc_like( '_transient_timeout_peptide_news_articles_' ) . '%'
+            )
+        );
+    }
+
+    /**
      * Extract categories from a SimplePie item.
      *
      * @param SimplePie_Item $item
@@ -427,12 +477,25 @@ class Peptide_News_Fetcher {
             if ( method_exists( $http_response, 'get_response_object' ) ) {
                 $raw = $http_response->get_response_object();
                 if ( isset( $raw->url ) ) {
-                    return $raw->url;
+                    $final_url = $raw->url;
                 }
             }
         }
 
-        return ! empty( $final_url ) ? $final_url : false;
+        // If we have a final URL, validate that it's not a cross-domain redirect
+        if ( ! empty( $final_url ) ) {
+            $original_host = wp_parse_url( $url, PHP_URL_HOST );
+            $final_host    = wp_parse_url( $final_url, PHP_URL_HOST );
+
+            // Reject cross-domain redirects
+            if ( $original_host !== $final_host ) {
+                return false;
+            }
+
+            return $final_url;
+        }
+
+        return false;
     }
 
     /**

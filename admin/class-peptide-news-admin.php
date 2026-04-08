@@ -46,7 +46,7 @@ class Peptide_News_Admin {
         // Chart.js for analytics dashboard.
         wp_enqueue_script(
             'chartjs',
-            'https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js',
+            plugins_url( 'vendor/chartjs/chart.umd.min.js', __FILE__ ),
             array(),
             '4.4.0',
             true
@@ -250,7 +250,7 @@ class Peptide_News_Admin {
             'rss_enabled'          => 'absint',
             'rss_feeds'            => 'sanitize_textarea_field',
             'newsapi_enabled'      => 'absint',
-            'newsapi_key'          => 'sanitize_text_field',
+            'newsapi_key'          => function ( $value ) { return $this->sanitize_api_key( $value, 'peptide_news_newsapi_key' ); },
             'article_retention'    => 'absint',
             'analytics_retention'  => 'absint',
             'anonymize_ip'         => 'absint',
@@ -262,7 +262,7 @@ class Peptide_News_Admin {
             'filter_body_keywords'    => 'sanitize_textarea_field',
             'filter_blocked_domains'  => 'sanitize_textarea_field',
             'llm_enabled'          => 'absint',
-            'openrouter_api_key'   => 'sanitize_text_field',
+            'openrouter_api_key'   => function ( $value ) { return $this->sanitize_api_key( $value, 'peptide_news_openrouter_api_key' ); },
             'llm_keywords_model'   => array( $this, 'sanitize_model_id' ),
             'llm_summary_model'    => array( $this, 'sanitize_model_id' ),
             'llm_max_articles'     => 'absint',
@@ -293,6 +293,44 @@ class Peptide_News_Admin {
             return 'google/gemini-2.0-flash-001';
         }
         return $value;
+    }
+
+    /**
+     * Sanitize API keys. If a masked key is submitted (••••••••XXXX format),
+     * keep the existing key. Otherwise, store the new full key.
+     *
+     * @param string $value Raw input.
+     * @return string Stored API key (full value or existing).
+     */
+    public function sanitize_api_key( $value, $option_name ) {
+        $value = sanitize_text_field( $value );
+        if ( empty( $value ) ) {
+            return '';
+        }
+
+        // If masked format detected (starts with bullets), keep existing stored value.
+        if ( mb_strpos( $value, '••••••' ) === 0 ) {
+            return get_option( $option_name, '' );
+        }
+
+        return $value;
+    }
+
+    /**
+     * Get a masked version of an API key showing only the last 4 characters.
+     *
+     * @param string $key Full API key.
+     * @return string Masked key (e.g., ••••••••XXXX).
+     */
+    private function mask_api_key( $key ) {
+        if ( empty( $key ) ) {
+            return '';
+        }
+        $len = strlen( $key );
+        if ( $len <= 4 ) {
+            return str_repeat( '•', $len );
+        }
+        return str_repeat( '•', $len - 4 ) . substr( $key, -4 );
     }
 
     // --- Field renderers ---
@@ -368,9 +406,11 @@ class Peptide_News_Admin {
 
     public function render_newsapi_key_field() {
         $value = get_option( 'peptide_news_newsapi_key', '' );
+        $display_value = ! empty( $value ) ? $this->mask_api_key( $value ) : '';
         printf(
-            '<input type="password" name="peptide_news_newsapi_key" value="%s" class="regular-text" />',
-            esc_attr( $value )
+            '<input type="password" name="peptide_news_newsapi_key" value="%s" class="regular-text" placeholder="%s" />',
+            esc_attr( $display_value ),
+            esc_attr__( 'Enter new API key to change', 'peptide-news' )
         );
     }
 
@@ -502,9 +542,11 @@ class Peptide_News_Admin {
 
     public function render_openrouter_key_field() {
         $value = get_option( 'peptide_news_openrouter_api_key', '' );
+        $display_value = ! empty( $value ) ? $this->mask_api_key( $value ) : '';
         printf(
-            '<input type="password" name="peptide_news_openrouter_api_key" value="%s" class="regular-text" />',
-            esc_attr( $value )
+            '<input type="password" name="peptide_news_openrouter_api_key" value="%s" class="regular-text" placeholder="%s" />',
+            esc_attr( $display_value ),
+            esc_attr__( 'Enter new API key to change', 'peptide-news' )
         );
         echo '<p class="description">' . wp_kses(
             __( 'Get an API key at <a href="https://openrouter.ai/keys" target="_blank" rel="noopener">openrouter.ai/keys</a>.', 'peptide-news' ),
@@ -547,7 +589,11 @@ class Peptide_News_Admin {
         }
 
         // Handle manual fetch trigger.
-        if ( isset( $_POST['peptide_news_fetch_now'] ) && check_admin_referer( 'peptide_news_fetch_now_action' ) ) {
+        if ( isset( $_POST['peptide_news_fetch_now'] ) ) {
+            if ( ! current_user_can( 'manage_options' ) ) {
+                wp_die( esc_html__( 'Unauthorized', 'peptide-news' ), 403 );
+            }
+            check_admin_referer( 'peptide_news_fetch_now_action' );
             $fetcher = new Peptide_News_Fetcher();
             $fetcher->fetch_all_sources();
             echo '<div class="notice notice-success"><p>' . esc_html__( 'Fetch completed!', 'peptide-news' ) . '</p></div>';
