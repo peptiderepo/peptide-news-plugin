@@ -230,11 +230,20 @@ class Peptide_News_Rest_API {
             }
         }
 
-        // Fallback: strip trailing " - Short Publisher Name" patterns (1-5 words).
+        // Fallback 1: strip trailing " - Short Publisher Name" patterns (1-5 words).
         // Only strips if the part after the separator looks like a publisher name
         // (starts with uppercase, no sentence-ending punctuation).
         $pattern = '/\s+[-–—|]\s+[A-Z][A-Za-z0-9\s.\'-]{0,50}$/u';
         $candidate = preg_replace( $pattern, '', $text );
+        if ( $candidate !== $text && strlen( $candidate ) > strlen( $text ) * 0.4 ) {
+            return rtrim( $candidate );
+        }
+
+        // Fallback 2: strip trailing nbsp-separated publisher names.
+        // Google News RSS excerpts use double non-breaking space + publisher name
+        // when the source field doesn't match (e.g., source = "news.google.com").
+        $nbsp_pattern = '/(?:\x{00A0}{1,2}|\s{2,})[A-Z][A-Za-z0-9\s.\'\-]{0,50}$/u';
+        $candidate = preg_replace( $nbsp_pattern, '', $text );
         if ( $candidate !== $text && strlen( $candidate ) > strlen( $text ) * 0.4 ) {
             return rtrim( $candidate );
         }
