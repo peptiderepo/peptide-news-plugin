@@ -185,11 +185,6 @@ class Peptide_News_Rest_API {
                 }
             }
 
-            // Escape string fields for REST API output
-            $article->title     = wp_kses_post( $article->title );
-            $article->excerpt   = wp_kses_post( $article->excerpt );
-            $article->ai_summary = wp_kses_post( $article->ai_summary );
-            $article->author    = esc_html( $article->author );
         }
 
         $data = array(
