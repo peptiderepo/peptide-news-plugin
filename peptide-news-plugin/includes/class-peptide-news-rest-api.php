@@ -111,7 +111,7 @@ class Peptide_News_Rest_API {
      * @return true|WP_Error
      */
     public function validate_date_format( $value, $request, $param ) {
-        if ( ! preg_match( '/^\d{4}-\d{2}-\d{2}$/', $value ) ) {
+        if ( ! preg_match( '/^\\d{4}-\\d{2}-\\d{2}$/', $value ) ) {
             return new WP_Error(
                 'rest_invalid_date',
                 sprintf( __( 'Invalid date format for %s. Expected Y-m-d.', 'peptide-news' ), $param ),
@@ -150,13 +150,13 @@ class Peptide_News_Rest_API {
 
         $articles = $wpdb->get_results( $wpdb->prepare(
             "SELECT id, source, source_url, title, excerpt, ai_summary, author,
-                    published_at, categories, tags
+                    thumbnail_url, thumbnail_local, published_at, categories, tags
              FROM {$table}
              WHERE is_active = 1
              ORDER BY published_at DESC
              LIMIT %d OFFSET %d",
-             $count,
-             $offset
+            $count,
+            $offset
         ) );
 
         // Strip source name from titles, excerpts, and summaries.
@@ -185,11 +185,6 @@ class Peptide_News_Rest_API {
                 }
             }
 
-            // Escape string fields for REST API output
-            $article->title     = wp_kses_post( $article->title );
-            $article->excerpt   = wp_kses_post( $article->excerpt );
-            $article->ai_summary = wp_kses_post( $article->ai_summary );
-            $article->author    = esc_html( $article->author );
         }
 
         $data = array(
@@ -203,7 +198,9 @@ class Peptide_News_Rest_API {
         // Cache the response for 1 hour.
         set_transient( $cache_key, $data, HOUR_IN_SECONDS );
 
-        return rest_ensure_response( $data );
+        $response = rest_ensure_response( $data );
+
+        return $response;
     }
 
     /**
@@ -211,8 +208,8 @@ class Peptide_News_Rest_API {
      *
      * Handles common separator patterns like " - Source", " | Source",
      * " — Source", and " – Source". Uses case-insensitive matching against
-     * the source field. Also strips generic trailing publisher names
-     * (1–5 words after a separator) that commonly appear in RSS titles.
+     * the source field. Also extracts publisher names from source URLs
+     * and has a regex fallback for common RSS title patterns.
      *
      * @param string $text       The text to clean.
      * @param string $source     The source name to strip.
@@ -260,13 +257,10 @@ class Peptide_News_Rest_API {
         if ( ! empty( $source_url ) ) {
             $host = wp_parse_url( $source_url, PHP_URL_HOST );
             if ( $host ) {
-                // Remove www. prefix and TLD.
                 $host = preg_replace( '/^www\./', '', $host );
                 $parts = explode( '.', $host );
                 if ( count( $parts ) >= 2 ) {
-                    // Use the main domain part (e.g., "news-medical" from "news-medical.net").
                     $domain_name = $parts[ count( $parts ) - 2 ];
-                    // Convert hyphens to spaces for matching ("news-medical" → "news medical").
                     $source_names[] = str_replace( '-', ' ', $domain_name );
                     $source_names[] = $domain_name;
                 }
@@ -287,7 +281,7 @@ class Peptide_News_Rest_API {
         // Fallback 1: strip trailing " - Short Publisher Name" patterns (1-5 words).
         // Only strips if the part after the separator looks like a publisher name
         // (starts with uppercase, no sentence-ending punctuation).
-        $pattern = '/\s+[-–—|]\s+[A-Z][A-Za-z0-9\s.\'-]{0,50}$/u';
+        $pattern = '/\s+[-\x{2013}\x{2014}|]\s+[A-Z][A-Za-z0-9\s.\'\-]{0,50}$/u';
         $candidate = preg_replace( $pattern, '', $text );
         if ( $candidate !== $text && strlen( $candidate ) > strlen( $text ) * 0.4 ) {
             return rtrim( $candidate );
