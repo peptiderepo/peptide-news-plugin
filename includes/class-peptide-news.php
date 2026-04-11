@@ -85,6 +85,7 @@ class Peptide_News {
         $this->loader->add_action( 'wp_ajax_peptide_news_generate_summaries', 'Peptide_News_LLM', 'ajax_generate_summaries' );
         $this->loader->add_action( 'wp_ajax_peptide_news_get_logs', 'Peptide_News_Logger', 'ajax_get_logs' );
         $this->loader->add_action( 'wp_ajax_peptide_news_clear_logs', 'Peptide_News_Logger', 'ajax_clear_logs' );
+        $this->loader->add_action( 'wp_ajax_peptide_news_delete_articles', 'Peptide_News_Rest_API', 'ajax_delete_articles' );
     }
 
     /**
