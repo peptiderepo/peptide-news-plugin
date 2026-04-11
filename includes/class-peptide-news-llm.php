@@ -239,22 +239,99 @@ class Peptide_News_LLM {
     /**
      * Build the prompt for article summarization.
      *
+     * When the article's stored content is sparse (empty or just the title),
+     * attempts to fetch the actual page content from the source URL.
+     *
      * @param object $article
      * @return string
      */
     private static function build_summary_prompt( $article ) {
-        $text = $article->title;
-        if ( ! empty( $article->excerpt ) ) {
-            $text .= "\n\n" . $article->excerpt;
+        $title       = trim( $article->title ?? '' );
+        $excerpt     = trim( $article->excerpt ?? '' );
+        $content     = trim( $article->content ?? '' );
+        $content_raw = wp_strip_all_tags( $content );
+
+        // Determine if we have meaningful content beyond just the title.
+        $has_real_excerpt = ! empty( $excerpt ) && $excerpt !== $title;
+        $has_real_content = mb_strlen( $content_raw ) > 100;
+
+        // If content is sparse, try fetching the article's web page.
+        if ( ! $has_real_content && ! empty( $article->source_url ) ) {
+            $fetched = self::fetch_article_text( $article->source_url );
+            if ( ! empty( $fetched ) ) {
+                $content_raw     = $fetched;
+                $has_real_content = true;
+            }
         }
-        if ( ! empty( $article->content ) ) {
-            $text .= "\n\n" . mb_substr( wp_strip_all_tags( $article->content ), 0, 3000 );
+
+        $text = $title;
+        if ( $has_real_excerpt ) {
+            $text .= "\n\n" . $excerpt;
+        }
+        if ( $has_real_content ) {
+            $text .= "\n\n" . mb_substr( $content_raw, 0, 3000 );
         }
 
         return "Summarize this peptide research article in 3-4 sentences. "
              . "Be concise, factual, and accessible to a general audience interested in peptide science. "
              . "Do not include any preamble or labels — just the summary text.\n\n"
              . "Article:\n" . $text;
+    }
+
+    /**
+     * Fetch article text from a URL for summarization when RSS content is sparse.
+     *
+     * Extracts the main body text from the page, stripping navigation,
+     * scripts, styles, and other non-content elements.
+     *
+     * @param string $url The article URL.
+     * @return string      Cleaned plain text or empty string on failure.
+     */
+    private static function fetch_article_text( $url ) {
+        $response = wp_remote_get( $url, array(
+            'timeout'    => 10,
+            'user-agent' => 'Mozilla/5.0 (compatible; PeptideNewsBot/1.0; +https://peptiderepo.com)',
+            'headers'    => array( 'Accept' => 'text/html' ),
+        ) );
+
+        if ( is_wp_error( $response ) || 200 !== wp_remote_retrieve_response_code( $response ) ) {
+            return '';
+        }
+
+        $html = wp_remote_retrieve_body( $response );
+        if ( empty( $html ) ) {
+            return '';
+        }
+
+        // Strip elements that don't carry article content.
+        $html = preg_replace( '/<script[^>]*>.*?<\/script>/is', '', $html );
+        $html = preg_replace( '/<style[^>]*>.*?<\/style>/is', '', $html );
+        $html = preg_replace( '/<nav[^>]*>.*?<\/nav>/is', '', $html );
+        $html = preg_replace( '/<header[^>]*>.*?<\/header>/is', '', $html );
+        $html = preg_replace( '/<footer[^>]*>.*?<\/footer>/is', '', $html );
+        $html = preg_replace( '/<aside[^>]*>.*?<\/aside>/is', '', $html );
+        $html = preg_replace( '/<!--.*?-->/s', '', $html );
+
+        // Try to extract content from <article> or <main> tags first.
+        $text = '';
+        if ( preg_match( '/<article[^>]*>(.*?)<\/article>/is', $html, $matches ) ) {
+            $text = wp_strip_all_tags( $matches[1] );
+        } elseif ( preg_match( '/<main[^>]*>(.*?)<\/main>/is', $html, $matches ) ) {
+            $text = wp_strip_all_tags( $matches[1] );
+        } else {
+            $text = wp_strip_all_tags( $html );
+        }
+
+        // Collapse whitespace.
+        $text = preg_replace( '/\s+/', ' ', $text );
+        $text = trim( $text );
+
+        // Only return if we got meaningful content.
+        if ( mb_strlen( $text ) < 100 ) {
+            return '';
+        }
+
+        return $text;
     }
 
     /**
