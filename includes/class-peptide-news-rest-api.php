@@ -377,4 +377,58 @@ class Peptide_News_Rest_API {
             'count'   => count( $data ),
         ) );
     }
+
+    /**
+     * AJAX handler: delete one or more articles by ID.
+     *
+     * Expects POST with 'ids' (comma-separated article IDs) and 'nonce'.
+     * Cascading foreign keys on the clicks and daily_stats tables handle
+     * related analytics cleanup automatically.
+     *
+     * @since 2.1.0
+     */
+    public static function ajax_delete_articles() {
+        check_ajax_referer( 'peptide_news_admin', 'nonce' );
+
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( 'Unauthorized.', 403 );
+        }
+
+        $raw_ids = isset( $_POST['ids'] ) ? sanitize_text_field( wp_unslash( $_POST['ids'] ) ) : '';
+        if ( empty( $raw_ids ) ) {
+            wp_send_json_error( 'No article IDs provided.' );
+        }
+
+        $ids = array_filter( array_map( 'absint', explode( ',', $raw_ids ) ) );
+        if ( empty( $ids ) ) {
+            wp_send_json_error( 'Invalid article IDs.' );
+        }
+
+        global $wpdb;
+        $table        = $wpdb->prefix . 'peptide_news_articles';
+        $placeholders = implode( ',', array_fill( 0, count( $ids ), '%d' ) );
+
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+        $deleted = $wpdb->query(
+            $wpdb->prepare(
+                // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+                "DELETE FROM {$table} WHERE id IN ({$placeholders})",
+                $ids
+            )
+        );
+
+        if ( false === $deleted ) {
+            wp_send_json_error( 'Database error.' );
+        }
+
+        // Clear article cache so the frontend reflects changes.
+        delete_transient( 'peptide_news_articles_1_10' );
+
+        Peptide_News_Logger::info( 'Deleted ' . $deleted . ' article(s): IDs ' . implode( ', ', $ids ), 'admin' );
+
+        wp_send_json_success( array(
+            'deleted' => $deleted,
+            'ids'     => $ids,
+        ) );
+    }
 }
