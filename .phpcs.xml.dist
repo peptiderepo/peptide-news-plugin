@@ -12,7 +12,6 @@
     <exclude-pattern>./vendor/*</exclude-pattern>
     <exclude-pattern>./node_modules/*</exclude-pattern>
     <exclude-pattern>./tests/*</exclude-pattern>
-    <exclude-pattern>./peptide-news-plugin/*</exclude-pattern>
     <exclude-pattern>./admin/vendor/*</exclude-pattern>
 
     <!-- Show progress and use colours -->

@@ -28,7 +28,7 @@ jobs:
           tools: composer
 
       - name: Syntax check all PHP files
-        run: find . -name '*.php' -not -path './vendor/*' -not -path './peptide-news-plugin/*' -print0 | xargs -0 -n1 php -l
+        run: find . -name '*.php' -not -path './vendor/*' -print0 | xargs -0 -n1 php -l
 
   # ── Security Audit ───────────────────────────────────────────────
   security-audit:
@@ -42,7 +42,7 @@ jobs:
           echo ":: Checking for direct SQL queries without prepare..."
           # Exclude uninstall.php (DROP TABLE is standard WP pattern), activator (table DDL),
           # and logger (TRUNCATE) — these use $wpdb->prefix which is safe internal state.
-          if grep -r "query\s*(\s*['\"].*\$" --include="*.php" --exclude-dir=vendor --exclude-dir=peptide-news-plugin . 2>/dev/null \
+          if grep -r "query\s*(\s*['\"].*\$" --include="*.php" --exclude-dir=vendor . 2>/dev/null \
             | grep -v "\\\$wpdb->prepare" \
             | grep -v "uninstall\.php" \
             | grep -v "class-peptide-news-activator\.php" \
@@ -55,18 +55,18 @@ jobs:
           fi
 
           echo ":: Checking for eval() usage..."
-          if grep -r "eval\s*(" --include="*.php" --exclude-dir=vendor --exclude-dir=peptide-news-plugin . 2>/dev/null; then
+          if grep -r "eval\s*(" --include="*.php" --exclude-dir=vendor . 2>/dev/null; then
             echo "ERROR: eval() found. This is a critical security risk."
             exit 1
           fi
 
           echo ":: Checking for base64_decode without validation..."
-          if grep -r "base64_decode\s*(" --include="*.php" --exclude-dir=vendor --exclude-dir=peptide-news-plugin . 2>/dev/null; then
+          if grep -r "base64_decode\s*(" --include="*.php" --exclude-dir=vendor . 2>/dev/null; then
             echo "WARNING: Found base64_decode(). Ensure the input is properly validated."
           fi
 
           echo ":: Checking for file_get_contents with user input..."
-          if grep -r "file_get_contents\s*(\s*\$" --include="*.php" --exclude-dir=vendor --exclude-dir=peptide-news-plugin . 2>/dev/null; then
+          if grep -r "file_get_contents\s*(\s*\$" --include="*.php" --exclude-dir=vendor . 2>/dev/null; then
             echo "WARNING: Found file_get_contents with variable. Ensure input is validated and restricted."
           fi
 
@@ -128,6 +128,6 @@ jobs:
 
       - name: Check JS syntax
         run: |
-          for f in $(find . -name '*.js' -not -path './vendor/*' -not -path './node_modules/*' -not -path './peptide-news-plugin/*' -not -path '*/vendor/*'); do
+          for f in $(find . -name '*.js' -not -path './vendor/*' -not -path './node_modules/*' -not -path '*/vendor/*'); do
             node --check "$f" || exit 1
           done
