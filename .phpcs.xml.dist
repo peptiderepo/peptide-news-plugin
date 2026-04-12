@@ -40,7 +40,6 @@
         <exclude name="WordPress.WhiteSpace.OperatorSpacing"/>
         <exclude name="Universal.WhiteSpace.PrecisionAlignment"/>
         <exclude name="Squiz.Strings.DoubleQuoteUsage"/>
-        <exclude name="WordPress.Arrays.CommaAfterArrayItem"/>
     </rule>
 
     <!-- Downgrade structural rules that fire on pre-existing patterns -->
