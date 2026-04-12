@@ -16,7 +16,7 @@
 
 // Abort if called directly.
 if ( ! defined( 'WPINC' ) ) {
-    die;
+	die;
 }
 
 /**
@@ -31,16 +31,16 @@ define( 'PEPTIDE_NEWS_PLUGIN_BASENAME', plugin_basename( __FILE__ ) );
  * Runs during plugin activation.
  */
 function peptide_news_activate() {
-    require_once PEPTIDE_NEWS_PLUGIN_DIR . 'includes/class-peptide-news-activator.php';
-    Peptide_News_Activator::activate();
+	require_once PEPTIDE_NEWS_PLUGIN_DIR . 'includes/class-peptide-news-activator.php';
+	Peptide_News_Activator::activate();
 }
 
 /**
  * Runs during plugin deactivation.
  */
 function peptide_news_deactivate() {
-    require_once PEPTIDE_NEWS_PLUGIN_DIR . 'includes/class-peptide-news-deactivator.php';
-    Peptide_News_Deactivator::deactivate();
+	require_once PEPTIDE_NEWS_PLUGIN_DIR . 'includes/class-peptide-news-deactivator.php';
+	Peptide_News_Deactivator::deactivate();
 }
 
 register_activation_hook( __FILE__, 'peptide_news_activate' );
@@ -57,12 +57,12 @@ require_once PEPTIDE_NEWS_PLUGIN_DIR . 'includes/class-peptide-news.php';
  * without re-activating the plugin.
  */
 function peptide_news_check_db_upgrade() {
-    $installed_version = get_option( 'peptide_news_db_version', '1.0.0' );
-    if ( version_compare( $installed_version, PEPTIDE_NEWS_VERSION, '<' ) ) {
-        require_once PEPTIDE_NEWS_PLUGIN_DIR . 'includes/class-peptide-news-activator.php';
-        require_once PEPTIDE_NEWS_PLUGIN_DIR . 'includes/class-peptide-news-logger.php';
-        Peptide_News_Activator::activate();
-    }
+	$installed_version = get_option( 'peptide_news_db_version', '1.0.0' );
+	if ( version_compare( $installed_version, PEPTIDE_NEWS_VERSION, '<' ) ) {
+		require_once PEPTIDE_NEWS_PLUGIN_DIR . 'includes/class-peptide-news-activator.php';
+		require_once PEPTIDE_NEWS_PLUGIN_DIR . 'includes/class-peptide-news-logger.php';
+		Peptide_News_Activator::activate();
+	}
 }
 add_action( 'plugins_loaded', 'peptide_news_check_db_upgrade' );
 
@@ -70,8 +70,8 @@ add_action( 'plugins_loaded', 'peptide_news_check_db_upgrade' );
  * Begins execution of the plugin.
  */
 function peptide_news_run() {
-    $plugin = new Peptide_News();
-    $plugin->run();
+	$plugin = new Peptide_News();
+	$plugin->run();
 }
 
 peptide_news_run();

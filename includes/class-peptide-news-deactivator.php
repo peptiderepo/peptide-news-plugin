@@ -8,7 +8,7 @@
  */
 class Peptide_News_Deactivator {
 
-    public static function deactivate() {
-        wp_clear_scheduled_hook( 'peptide_news_cron_fetch' );
-    }
+	public static function deactivate() {
+		wp_clear_scheduled_hook( 'peptide_news_cron_fetch' );
+	}
 }
