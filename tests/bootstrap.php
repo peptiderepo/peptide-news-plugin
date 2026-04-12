@@ -118,6 +118,32 @@ if ( ! function_exists( 'add_filter' ) ) {
         return true;
     }
 }
+if ( ! function_exists( 'get_transient' ) ) {
+    function get_transient( $transient ) {
+        global $_test_transients;
+        return isset( $_test_transients[ $transient ] ) ? $_test_transients[ $transient ] : false;
+    }
+}
+if ( ! function_exists( 'set_transient' ) ) {
+    function set_transient( $transient, $value, $expiration = 0 ) {
+        global $_test_transients;
+        $_test_transients[ $transient ] = $value;
+        return true;
+    }
+}
+if ( ! function_exists( 'delete_transient' ) ) {
+    function delete_transient( $transient ) {
+        global $_test_transients;
+        unset( $_test_transients[ $transient ] );
+        return true;
+    }
+}
+if ( ! defined( 'MINUTE_IN_SECONDS' ) ) {
+    define( 'MINUTE_IN_SECONDS', 60 );
+}
+if ( ! defined( 'DAY_IN_SECONDS' ) ) {
+    define( 'DAY_IN_SECONDS', 86400 );
+}
 if ( ! function_exists( 'add_action' ) ) {
     function add_action( $tag, $callback, $priority = 10, $accepted_args = 1 ) {
         return true;
@@ -211,6 +237,72 @@ require_once PEPTIDE_NEWS_PLUGIN_DIR . 'includes/class-peptide-news-content-filt
 
 // LLM class provides is_valid_model() used by Admin sanitize callbacks.
 require_once PEPTIDE_NEWS_PLUGIN_DIR . 'includes/class-peptide-news-llm.php';
+
+// Stub AJAX-related functions used by cost tracker and other modules.
+if ( ! function_exists( 'wp_send_json_success' ) ) {
+    function wp_send_json_success( $data = null, $status_code = null ) {
+        global $_test_json_response;
+        $_test_json_response = array( 'success' => true, 'data' => $data );
+    }
+}
+if ( ! function_exists( 'wp_send_json_error' ) ) {
+    function wp_send_json_error( $data = null, $status_code = null ) {
+        global $_test_json_response;
+        $_test_json_response = array( 'success' => false, 'data' => $data );
+    }
+}
+if ( ! function_exists( 'check_ajax_referer' ) ) {
+    function check_ajax_referer( $action = -1, $query_arg = false, $die = true ) {
+        return true;
+    }
+}
+if ( ! function_exists( 'wp_unslash' ) ) {
+    function wp_unslash( $value ) {
+        return is_string( $value ) ? stripslashes( $value ) : $value;
+    }
+}
+if ( ! function_exists( 'wp_json_encode' ) ) {
+    function wp_json_encode( $data, $options = 0, $depth = 512 ) {
+        return json_encode( $data, $options, $depth );
+    }
+}
+if ( ! function_exists( 'home_url' ) ) {
+    function home_url( $path = '' ) {
+        return 'https://example.com' . $path;
+    }
+}
+if ( ! function_exists( 'wp_remote_post' ) ) {
+    function wp_remote_post( $url, $args = array() ) {
+        return new WP_Error( 'http_request_not_available', 'HTTP requests not available in tests' );
+    }
+}
+if ( ! function_exists( 'wp_remote_retrieve_response_code' ) ) {
+    function wp_remote_retrieve_response_code( $response ) {
+        return 200;
+    }
+}
+if ( ! function_exists( 'wp_remote_retrieve_body' ) ) {
+    function wp_remote_retrieve_body( $response ) {
+        return '';
+    }
+}
+if ( ! function_exists( 'wp_remote_retrieve_header' ) ) {
+    function wp_remote_retrieve_header( $response, $header ) {
+        return '';
+    }
+}
+if ( ! function_exists( 'selected' ) ) {
+    function selected( $selected, $current = true, $echo = true ) {
+        $result = (string) $selected === (string) $current ? ' selected="selected"' : '';
+        if ( $echo ) {
+            echo $result;
+        }
+        return $result;
+    }
+}
+
+// Cost tracker provides calculate_cost(), budget checks used by tests.
+require_once PEPTIDE_NEWS_PLUGIN_DIR . 'includes/class-peptide-news-cost-tracker.php';
 
 // Stub WP_REST_Request for REST API tests.
 if ( ! class_exists( 'WP_REST_Request' ) ) {

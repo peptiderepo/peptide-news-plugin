@@ -1,9 +1,10 @@
 <?php
+declare( strict_types=1 );
 /**
  * Plugin Name:       Peptide News Aggregator
  * Plugin URI:        https://github.com/peptiderepo/peptide-news-plugin
  * Description:       Aggregates and displays the latest peptide research news from multiple sources with click analytics and trend reporting.
- * Version:           2.2.0
+ * Version:           2.4.0
  * Author:            Peptide News Team
  * Author URI:        https://github.com/peptiderepo
  * License:           GPL-2.0+
@@ -22,7 +23,7 @@ if ( ! defined( 'WPINC' ) ) {
 /**
  * Current plugin version — follows SemVer.
  */
-define( 'PEPTIDE_NEWS_VERSION', '2.2.0' );
+define( 'PEPTIDE_NEWS_VERSION', '2.4.0' );
 define( 'PEPTIDE_NEWS_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'PEPTIDE_NEWS_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'PEPTIDE_NEWS_PLUGIN_BASENAME', plugin_basename( __FILE__ ) );
@@ -30,7 +31,7 @@ define( 'PEPTIDE_NEWS_PLUGIN_BASENAME', plugin_basename( __FILE__ ) );
 /**
  * Runs during plugin activation.
  */
-function peptide_news_activate() {
+function peptide_news_activate(): void {
 	require_once PEPTIDE_NEWS_PLUGIN_DIR . 'includes/class-peptide-news-activator.php';
 	Peptide_News_Activator::activate();
 }
@@ -38,7 +39,7 @@ function peptide_news_activate() {
 /**
  * Runs during plugin deactivation.
  */
-function peptide_news_deactivate() {
+function peptide_news_deactivate(): void {
 	require_once PEPTIDE_NEWS_PLUGIN_DIR . 'includes/class-peptide-news-deactivator.php';
 	Peptide_News_Deactivator::deactivate();
 }
@@ -56,7 +57,7 @@ require_once PEPTIDE_NEWS_PLUGIN_DIR . 'includes/class-peptide-news.php';
  * This handles existing installs that upgrade from 1.0.0 to 1.1.0
  * without re-activating the plugin.
  */
-function peptide_news_check_db_upgrade() {
+function peptide_news_check_db_upgrade(): void {
 	$installed_version = get_option( 'peptide_news_db_version', '1.0.0' );
 	if ( version_compare( $installed_version, PEPTIDE_NEWS_VERSION, '<' ) ) {
 		require_once PEPTIDE_NEWS_PLUGIN_DIR . 'includes/class-peptide-news-activator.php';
@@ -69,7 +70,7 @@ add_action( 'plugins_loaded', 'peptide_news_check_db_upgrade' );
 /**
  * Begins execution of the plugin.
  */
-function peptide_news_run() {
+function peptide_news_run(): void {
 	$plugin = new Peptide_News();
 	$plugin->run();
 }

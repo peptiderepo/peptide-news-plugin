@@ -1,4 +1,5 @@
 <?php
+declare( strict_types=1 );
 /**
  * LLM integration via OpenRouter for article analysis.
  *
@@ -20,7 +21,7 @@ class Peptide_News_LLM {
 	 *
 	 * @return string
 	 */
-	private static function get_api_url() {
+	private static function get_api_url(): string {
 		return get_option( 'peptide_news_llm_api_url', 'https://openrouter.ai/api/v1/chat/completions' );
 	}
 
@@ -29,9 +30,28 @@ class Peptide_News_LLM {
 	 *
 	 * @return bool
 	 */
-	public static function is_enabled() {
-		$api_key = get_option( 'peptide_news_openrouter_api_key', '' );
+	public static function is_enabled(): bool {
+		$api_key = self::get_api_key();
 		return ! empty( $api_key ) && (bool) get_option( 'peptide_news_llm_enabled', 0 );
+	}
+
+	/**
+	 * Retrieve and decrypt the OpenRouter API key.
+	 *
+	 * Handles both encrypted (AES-256-CBC) and legacy plaintext values
+	 * transparently via Peptide_News_Encryption::decrypt().
+	 *
+	 * @return string Decrypted API key or empty string.
+	 */
+	private static function get_api_key(): string {
+		$raw = get_option( 'peptide_news_openrouter_api_key', '' );
+		if ( empty( $raw ) ) {
+			return '';
+		}
+		if ( class_exists( 'Peptide_News_Encryption' ) ) {
+			return Peptide_News_Encryption::decrypt( $raw );
+		}
+		return $raw;
 	}
 
 	/**
@@ -42,7 +62,7 @@ class Peptide_News_LLM {
 	 * @param string $model
 	 * @return bool
 	 */
-	public static function is_valid_model( $model ) {
+	public static function is_valid_model( string $model ): bool {
 		return (bool) preg_match( '/^[a-zA-Z0-9_-]+\/[a-zA-Z0-9._-]+(:[a-zA-Z0-9._-]+)?$/', $model );
 	}
 
@@ -50,12 +70,13 @@ class Peptide_News_LLM {
 	 * Process a single article: extract keywords and generate a summary.
 	 *
 	 * Skips articles that already have both tags and ai_summary unless $force is true.
+	 * Checks budget before each API call and logs costs via Cost_Tracker.
 	 *
 	 * @param object $article  Database row with id, title, excerpt, content, categories.
 	 * @param bool   $force    Re-process even if already analyzed.
 	 * @return array            Results with 'keywords', 'summary', and 'success' keys.
 	 */
-	public static function process_article( $article, $force = false ) {
+	public static function process_article( object $article, bool $force = false ): array {
 		if ( ! self::is_enabled() ) {
 			return array( 'keywords' => '', 'summary' => '', 'success' => false );
 		}
@@ -67,25 +88,44 @@ class Peptide_News_LLM {
 			'errors'   => array(),
 		);
 
-		$api_key = get_option( 'peptide_news_openrouter_api_key', '' );
+		$api_key = self::get_api_key();
 		$any_success = false;
+		$article_id = (int) $article->id;
 
 		// --- Keyword extraction ---
 		$keywords_model = get_option( 'peptide_news_llm_keywords_model', 'google/gemini-2.0-flash-001' );
 		$need_keywords  = $force || empty( $article->tags );
 
 		if ( $need_keywords && self::is_valid_model( $keywords_model ) ) {
-			$keywords_prompt = self::build_keywords_prompt( $article );
-			$keywords_result = self::call_openrouter( $api_key, $keywords_model, $keywords_prompt );
-
-			if ( ! is_wp_error( $keywords_result ) ) {
-				$results['keywords'] = self::sanitize_keywords( $keywords_result );
-				$any_success = true;
-				Peptide_News_Logger::debug( 'Keywords extracted for article #' . $article->id, 'llm' );
+			// Budget gate: block if monthly limit reached.
+			if ( class_exists( 'Peptide_News_Cost_Tracker' ) && Peptide_News_Cost_Tracker::is_budget_exceeded() ) {
+				$results['errors'][] = 'Monthly LLM budget exceeded — keywords skipped.';
+				Peptide_News_Logger::warning( 'Budget exceeded, skipping keywords for article #' . $article_id, 'cost' );
 			} else {
-				$err_msg = 'Keywords (' . $keywords_model . '): ' . $keywords_result->get_error_message();
-				$results['errors'][] = $err_msg;
-				Peptide_News_Logger::error( 'Keyword extraction failed for article #' . $article->id . ': ' . $keywords_result->get_error_message(), 'llm' );
+				$keywords_prompt = self::build_keywords_prompt( $article );
+				$keywords_response = self::call_openrouter_with_usage( $api_key, $keywords_model, $keywords_prompt );
+
+				if ( ! is_wp_error( $keywords_response['content'] ) ) {
+					$results['keywords'] = self::sanitize_keywords( $keywords_response['content'] );
+					$any_success = true;
+					Peptide_News_Logger::debug( 'Keywords extracted for article #' . $article_id, 'llm' );
+				} else {
+					$err_msg = 'Keywords (' . $keywords_model . '): ' . $keywords_response['content']->get_error_message();
+					$results['errors'][] = $err_msg;
+					Peptide_News_Logger::error( 'Keyword extraction failed for article #' . $article_id . ': ' . $keywords_response['content']->get_error_message(), 'llm' );
+				}
+
+				// Log cost regardless of success — failed calls still consume tokens.
+				if ( class_exists( 'Peptide_News_Cost_Tracker' ) && ! empty( $keywords_response['usage'] ) ) {
+					Peptide_News_Cost_Tracker::log_api_call(
+						$keywords_model,
+						'keywords',
+						$keywords_response['usage'],
+						$article_id,
+						$keywords_response['request_id'] ?? '',
+						$keywords_response['cost'] ?? 0.0
+					);
+				}
 			}
 		} elseif ( $need_keywords ) {
 			$results['errors'][] = 'Invalid keywords model ID: ' . $keywords_model;
@@ -97,18 +137,36 @@ class Peptide_News_LLM {
 		$need_summary  = $force || empty( $article->ai_summary );
 
 		if ( $need_summary && self::is_valid_model( $summary_model ) ) {
-			$summary_prompt = self::build_summary_prompt( $article );
-			$summary_result = self::call_openrouter( $api_key, $summary_model, $summary_prompt );
-
-			if ( ! is_wp_error( $summary_result ) ) {
-				// Strip all HTML tags from LLM output to prevent XSS.
-				$results['summary'] = sanitize_textarea_field( wp_strip_all_tags( $summary_result ) );
-				$any_success = true;
-				Peptide_News_Logger::info( 'AI summary generated for article #' . $article->id . ': ' . mb_substr( $article->title, 0, 60 ), 'llm' );
+			// Budget gate: re-check in case keyword extraction pushed us over.
+			if ( class_exists( 'Peptide_News_Cost_Tracker' ) && Peptide_News_Cost_Tracker::is_budget_exceeded() ) {
+				$results['errors'][] = 'Monthly LLM budget exceeded — summary skipped.';
+				Peptide_News_Logger::warning( 'Budget exceeded, skipping summary for article #' . $article_id, 'cost' );
 			} else {
-				$err_msg = 'Summary (' . $summary_model . '): ' . $summary_result->get_error_message();
-				$results['errors'][] = $err_msg;
-				Peptide_News_Logger::error( 'Summarization failed for article #' . $article->id . ': ' . $summary_result->get_error_message(), 'llm' );
+				$summary_prompt = self::build_summary_prompt( $article );
+				$summary_response = self::call_openrouter_with_usage( $api_key, $summary_model, $summary_prompt );
+
+				if ( ! is_wp_error( $summary_response['content'] ) ) {
+					// Strip all HTML tags from LLM output to prevent XSS.
+					$results['summary'] = sanitize_textarea_field( wp_strip_all_tags( $summary_response['content'] ) );
+					$any_success = true;
+					Peptide_News_Logger::info( 'AI summary generated for article #' . $article_id . ': ' . mb_substr( $article->title, 0, 60 ), 'llm' );
+				} else {
+					$err_msg = 'Summary (' . $summary_model . '): ' . $summary_response['content']->get_error_message();
+					$results['errors'][] = $err_msg;
+					Peptide_News_Logger::error( 'Summarization failed for article #' . $article_id . ': ' . $summary_response['content']->get_error_message(), 'llm' );
+				}
+
+				// Log cost regardless of success.
+				if ( class_exists( 'Peptide_News_Cost_Tracker' ) && ! empty( $summary_response['usage'] ) ) {
+					Peptide_News_Cost_Tracker::log_api_call(
+						$summary_model,
+						'summary',
+						$summary_response['usage'],
+						$article_id,
+						$summary_response['request_id'] ?? '',
+						$summary_response['cost'] ?? 0.0
+					);
+				}
 			}
 		} elseif ( $need_summary ) {
 			$results['errors'][] = 'Invalid summary model ID: ' . $summary_model;
@@ -119,7 +177,7 @@ class Peptide_News_LLM {
 
 		// --- Persist results ---
 		if ( ! empty( $results['keywords'] ) || ! empty( $results['summary'] ) ) {
-			self::save_results( $article->id, $results, $force );
+			self::save_results( $article_id, $results, $force );
 		}
 
 		return $results;
@@ -136,7 +194,7 @@ class Peptide_News_LLM {
 	 * @param bool $override_limit  When true, ignore the admin "max per cycle" cap.
 	 * @return int                   Number of articles successfully processed.
 	 */
-	public static function process_unanalyzed( $batch_size = 10, $override_limit = false ) {
+	public static function process_unanalyzed( int $batch_size = 10, bool $override_limit = false ): int {
 		if ( ! self::is_enabled() ) {
 			return 0;
 		}
@@ -221,7 +279,7 @@ class Peptide_News_LLM {
 	 * @param object $article
 	 * @return string
 	 */
-	private static function build_keywords_prompt( $article ) {
+	private static function build_keywords_prompt( object $article ): string {
 		$text = $article->title;
 		if ( ! empty( $article->excerpt ) ) {
 			$text .= "\n\n" . $article->excerpt;
@@ -245,7 +303,7 @@ class Peptide_News_LLM {
 	 * @param object $article
 	 * @return string
 	 */
-	private static function build_summary_prompt( $article ) {
+	private static function build_summary_prompt( object $article ): string {
 		$title       = trim( $article->title ?? '' );
 		$excerpt     = trim( $article->excerpt ?? '' );
 		$content     = trim( $article->content ?? '' );
@@ -287,7 +345,7 @@ class Peptide_News_LLM {
 	 * @param string $url The article URL.
 	 * @return string      Cleaned plain text or empty string on failure.
 	 */
-	private static function fetch_article_text( $url ) {
+	private static function fetch_article_text( string $url ): string {
 		$response = wp_remote_get( $url, array(
 			'timeout'    => 10,
 			'user-agent' => 'Mozilla/5.0 (compatible; PeptideNewsBot/1.0; +https://peptiderepo.com)',
@@ -337,12 +395,38 @@ class Peptide_News_LLM {
 	/**
 	 * Call the OpenRouter API with retry logic for 429 rate limits.
 	 *
+	 * Backward-compatible wrapper that returns only the content string.
+	 * Internally delegates to call_openrouter_with_usage().
+	 *
 	 * @param string $api_key
 	 * @param string $model
 	 * @param string $prompt
 	 * @return string|WP_Error  The response text or an error.
 	 */
-	public static function call_openrouter( $api_key, $model, $prompt ) {
+	public static function call_openrouter( string $api_key, string $model, string $prompt ) {
+		$result = self::call_openrouter_with_usage( $api_key, $model, $prompt );
+		return $result['content'];
+	}
+
+	/**
+	 * Call the OpenRouter API and return content + token usage data.
+	 *
+	 * Returns an array with 'content' (string|WP_Error), 'usage' (token counts),
+	 * 'request_id' (for debugging), and 'cost' (if API reports it).
+	 *
+	 * @param string $api_key
+	 * @param string $model
+	 * @param string $prompt
+	 * @return array{content: string|WP_Error, usage: array, request_id: string, cost: float}
+	 */
+	public static function call_openrouter_with_usage( string $api_key, string $model, string $prompt ): array {
+		$result = array(
+			'content'    => '',
+			'usage'      => array(),
+			'request_id' => '',
+			'cost'       => 0.0,
+		);
+
 		$body = array(
 			'model'    => $model,
 			'messages' => array(
@@ -371,7 +455,8 @@ class Peptide_News_LLM {
 			) );
 
 			if ( is_wp_error( $response ) ) {
-				return $response;
+				$result['content'] = $response;
+				return $result;
 			}
 
 			$status = wp_remote_retrieve_response_code( $response );
@@ -391,29 +476,55 @@ class Peptide_News_LLM {
 
 		$data = json_decode( wp_remote_retrieve_body( $response ), true );
 
+		// Extract usage data from response regardless of success/failure.
+		// OpenRouter includes usage in the response body: data.usage.{prompt_tokens, completion_tokens, total_tokens}
+		if ( is_array( $data ) && isset( $data['usage'] ) && is_array( $data['usage'] ) ) {
+			$result['usage'] = array(
+				'prompt_tokens'     => (int) ( $data['usage']['prompt_tokens'] ?? 0 ),
+				'completion_tokens' => (int) ( $data['usage']['completion_tokens'] ?? 0 ),
+				'total_tokens'      => (int) ( $data['usage']['total_tokens'] ?? 0 ),
+			);
+		}
+
+		// Extract the request ID from response for debugging/reconciliation.
+		if ( is_array( $data ) && isset( $data['id'] ) ) {
+			$result['request_id'] = (string) $data['id'];
+		}
+
+		// OpenRouter may include generation cost in data.usage.total_cost or similar.
+		if ( is_array( $data ) && isset( $data['usage']['total_cost'] ) ) {
+			$result['cost'] = (float) $data['usage']['total_cost'];
+		}
+
 		if ( $status < 200 || $status >= 300 ) {
 			$error_msg = 'HTTP ' . $status;
 			if ( is_array( $data ) && isset( $data['error'] ) && is_array( $data['error'] ) && isset( $data['error']['message'] ) ) {
 				$error_msg = $data['error']['message'];
 			}
-			return new WP_Error( 'openrouter_error', $error_msg );
+			$result['content'] = new WP_Error( 'openrouter_error', $error_msg );
+			return $result;
 		}
 
 		// Validate the response structure thoroughly.
 		if ( ! is_array( $data ) ) {
-			return new WP_Error( 'openrouter_invalid', 'Invalid JSON response from OpenRouter' );
+			$result['content'] = new WP_Error( 'openrouter_invalid', 'Invalid JSON response from OpenRouter' );
+			return $result;
 		}
 		if ( ! isset( $data['choices'] ) || ! is_array( $data['choices'] ) || empty( $data['choices'] ) ) {
-			return new WP_Error( 'openrouter_empty', 'No choices in OpenRouter response' );
+			$result['content'] = new WP_Error( 'openrouter_empty', 'No choices in OpenRouter response' );
+			return $result;
 		}
 		if ( ! isset( $data['choices'][0]['message'] ) || ! is_array( $data['choices'][0]['message'] ) ) {
-			return new WP_Error( 'openrouter_empty', 'Malformed choice in OpenRouter response' );
+			$result['content'] = new WP_Error( 'openrouter_empty', 'Malformed choice in OpenRouter response' );
+			return $result;
 		}
 		if ( ! isset( $data['choices'][0]['message']['content'] ) || '' === trim( $data['choices'][0]['message']['content'] ) ) {
-			return new WP_Error( 'openrouter_empty', 'Empty content in OpenRouter response' );
+			$result['content'] = new WP_Error( 'openrouter_empty', 'Empty content in OpenRouter response' );
+			return $result;
 		}
 
-		return trim( $data['choices'][0]['message']['content'] );
+		$result['content'] = trim( $data['choices'][0]['message']['content'] );
+		return $result;
 	}
 
 	/**
@@ -422,7 +533,7 @@ class Peptide_News_LLM {
 	 * @param string $raw  Raw comma-separated keywords.
 	 * @return string       Cleaned, deduplicated, comma-separated list.
 	 */
-	private static function sanitize_keywords( $raw ) {
+	private static function sanitize_keywords( string $raw ): string {
 		// Strip all HTML first to prevent XSS.
 		$raw = wp_strip_all_tags( $raw );
 
@@ -451,7 +562,7 @@ class Peptide_News_LLM {
 	 * @param array $results     Array with 'keywords' and 'summary'.
 	 * @param bool  $force       Overwrite existing values.
 	 */
-	private static function save_results( $article_id, $results, $force = false ) {
+	private static function save_results( int $article_id, array $results, bool $force = false ): void {
 		global $wpdb;
 		$table = $wpdb->prefix . 'peptide_news_articles';
 
@@ -487,7 +598,7 @@ class Peptide_News_LLM {
 	 *
 	 * @since 2.0.1
 	 */
-	public static function ajax_generate_summaries() {
+	public static function ajax_generate_summaries(): void {
 		check_ajax_referer( 'peptide_news_admin', 'nonce' );
 		if ( ! current_user_can( 'manage_options' ) ) {
 			wp_die( esc_html__( 'Unauthorized', 'peptide-news' ), 403 );
@@ -557,7 +668,7 @@ class Peptide_News_LLM {
 	/**
 	 * Clear all article transient caches.
 	 */
-	private static function clear_article_cache() {
+	private static function clear_article_cache(): void {
 		global $wpdb;
 		$wpdb->query(
 			$wpdb->prepare(
@@ -575,7 +686,7 @@ class Peptide_News_LLM {
 	 *
 	 * @param string $message
 	 */
-	private static function log_error( $message ) {
+	private static function log_error( string $message ): void {
 		if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
 			error_log( '[Peptide News LLM] ' . $message );
 		}

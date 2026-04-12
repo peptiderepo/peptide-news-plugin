@@ -1,4 +1,5 @@
 <?php
+declare( strict_types=1 );
 /**
  * The core plugin class.
  *
@@ -31,16 +32,18 @@ class Peptide_News {
 	/**
 	 * Load all required files.
 	 */
-	private function load_dependencies() {
+	private function load_dependencies(): void {
 		require_once PEPTIDE_NEWS_PLUGIN_DIR . 'includes/class-peptide-news-loader.php';
 		require_once PEPTIDE_NEWS_PLUGIN_DIR . 'includes/class-peptide-news-activator.php';
 		require_once PEPTIDE_NEWS_PLUGIN_DIR . 'includes/class-peptide-news-deactivator.php';
+		require_once PEPTIDE_NEWS_PLUGIN_DIR . 'includes/class-peptide-news-encryption.php';
 		require_once PEPTIDE_NEWS_PLUGIN_DIR . 'includes/class-peptide-news-fetcher.php';
 		require_once PEPTIDE_NEWS_PLUGIN_DIR . 'includes/class-peptide-news-analytics.php';
 		require_once PEPTIDE_NEWS_PLUGIN_DIR . 'includes/class-peptide-news-rest-api.php';
 		require_once PEPTIDE_NEWS_PLUGIN_DIR . 'includes/class-peptide-news-llm.php';
 		require_once PEPTIDE_NEWS_PLUGIN_DIR . 'includes/class-peptide-news-logger.php';
 		require_once PEPTIDE_NEWS_PLUGIN_DIR . 'includes/class-peptide-news-content-filter.php';
+		require_once PEPTIDE_NEWS_PLUGIN_DIR . 'includes/class-peptide-news-cost-tracker.php';
 		require_once PEPTIDE_NEWS_PLUGIN_DIR . 'admin/class-peptide-news-admin.php';
 		require_once PEPTIDE_NEWS_PLUGIN_DIR . 'public/class-peptide-news-public.php';
 
@@ -50,7 +53,7 @@ class Peptide_News {
 	/**
 	 * Register admin-side hooks.
 	 */
-	private function define_admin_hooks() {
+	private function define_admin_hooks(): void {
 		$admin = new Peptide_News_Admin( $this->plugin_name, $this->version );
 
 		$this->loader->add_action( 'admin_enqueue_scripts', $admin, 'enqueue_styles' );
@@ -62,7 +65,7 @@ class Peptide_News {
 	/**
 	 * Register public-facing hooks.
 	 */
-	private function define_public_hooks() {
+	private function define_public_hooks(): void {
 		$public = new Peptide_News_Public( $this->plugin_name, $this->version );
 
 		$this->loader->add_action( 'wp_enqueue_scripts', $public, 'enqueue_styles' );
@@ -76,7 +79,7 @@ class Peptide_News {
 	/**
 	 * Register WP-Cron hooks for scheduled fetching.
 	 */
-	private function define_cron_hooks() {
+	private function define_cron_hooks(): void {
 		$fetcher = new Peptide_News_Fetcher();
 
 		$this->loader->add_action( 'peptide_news_cron_fetch', $fetcher, 'fetch_all_sources' );
@@ -86,12 +89,13 @@ class Peptide_News {
 		$this->loader->add_action( 'wp_ajax_peptide_news_get_logs', 'Peptide_News_Logger', 'ajax_get_logs' );
 		$this->loader->add_action( 'wp_ajax_peptide_news_clear_logs', 'Peptide_News_Logger', 'ajax_clear_logs' );
 		$this->loader->add_action( 'wp_ajax_peptide_news_delete_articles', 'Peptide_News_Rest_API', 'ajax_delete_articles' );
+		$this->loader->add_action( 'wp_ajax_peptide_news_get_cost_data', 'Peptide_News_Cost_Tracker', 'ajax_get_cost_data' );
 	}
 
 	/**
 	 * Register REST API hooks.
 	 */
-	private function define_rest_hooks() {
+	private function define_rest_hooks(): void {
 		$rest = new Peptide_News_Rest_API();
 
 		$this->loader->add_action( 'rest_api_init', $rest, 'register_routes' );
@@ -100,19 +104,19 @@ class Peptide_News {
 	/**
 	 * Run the loader to execute all registered hooks.
 	 */
-	public function run() {
+	public function run(): void {
 		$this->loader->run();
 	}
 
-	public function get_plugin_name() {
+	public function get_plugin_name(): string {
 		return $this->plugin_name;
 	}
 
-	public function get_version() {
+	public function get_version(): string {
 		return $this->version;
 	}
 
-	public function get_loader() {
+	public function get_loader(): Peptide_News_Loader {
 		return $this->loader;
 	}
 }

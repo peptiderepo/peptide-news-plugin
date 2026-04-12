@@ -16,6 +16,11 @@ wp-content/uploads/
 node_modules/
 vendor/
 
+# Environment & credentials
+.env
+.env.local
+.env.credentials
+
 # Logs
 *.log
 debug.log

@@ -1,4 +1,5 @@
 <?php
+declare( strict_types=1 );
 /**
  * Admin-specific functionality.
  *
@@ -14,7 +15,7 @@ class Peptide_News_Admin {
 	/** @var string */
 	private $version;
 
-	public function __construct( $plugin_name, $version ) {
+	public function __construct( string $plugin_name, string $version ) {
 		$this->plugin_name = $plugin_name;
 		$this->version     = $version;
 	}
@@ -22,7 +23,7 @@ class Peptide_News_Admin {
 	/**
 	 * Enqueue admin CSS.
 	 */
-	public function enqueue_styles( $hook ) {
+	public function enqueue_styles( string $hook ): void {
 		if ( strpos( $hook, 'peptide-news' ) === false ) {
 			return;
 		}
@@ -38,7 +39,7 @@ class Peptide_News_Admin {
 	/**
 	 * Enqueue admin JS.
 	 */
-	public function enqueue_scripts( $hook ) {
+	public function enqueue_scripts( string $hook ): void {
 		if ( strpos( $hook, 'peptide-news' ) === false ) {
 			return;
 		}
@@ -71,7 +72,7 @@ class Peptide_News_Admin {
 	/**
 	 * Add admin menu pages.
 	 */
-	public function add_admin_menu() {
+	public function add_admin_menu(): void {
 		// Main menu — Analytics Dashboard.
 		add_menu_page(
 			__( 'Peptide News', 'peptide-news' ),
@@ -102,12 +103,22 @@ class Peptide_News_Admin {
 			'peptide-news-articles',
 			array( $this, 'render_articles_page' )
 		);
+
+		// Sub-menu — Cost Dashboard.
+		add_submenu_page(
+			'peptide-news-dashboard',
+			__( 'LLM Costs', 'peptide-news' ),
+			__( 'LLM Costs', 'peptide-news' ),
+			'manage_options',
+			'peptide-news-costs',
+			array( $this, 'render_cost_dashboard_page' )
+		);
 	}
 
 	/**
 	 * Register all settings.
 	 */
-	public function register_settings() {
+	public function register_settings(): void {
 
 		// --- General section ---
 		add_settings_section(
@@ -213,12 +224,43 @@ class Peptide_News_Admin {
 		$this->add_setting( 'llm_summary_model', __( 'Summary Model', 'peptide-news' ), 'render_llm_summary_model_field', 'peptide_news_llm_section' );
 
 		$this->add_setting( 'llm_max_articles', __( 'Max Articles per Cycle', 'peptide-news' ), 'render_llm_max_articles_field', 'peptide_news_llm_section' );
+
+		// --- Cost Tracking / Budget section ---
+		add_settings_section(
+			'peptide_news_cost_section',
+			__( 'Cost Tracking & Budget', 'peptide-news' ),
+			function () {
+				echo '<p>' . esc_html__( 'Monitor and control LLM API spending. Set a monthly budget to prevent unexpected charges.', 'peptide-news' ) . '</p>';
+				if ( class_exists( 'Peptide_News_Cost_Tracker' ) ) {
+					$month_spend = Peptide_News_Cost_Tracker::get_current_month_spend();
+					$budget      = (float) get_option( 'peptide_news_monthly_budget', 0.0 );
+					printf(
+						'<p class="description"><strong>%s:</strong> $%.4f',
+						esc_html__( 'This month\'s spend', 'peptide-news' ),
+						$month_spend
+					);
+					if ( $budget > 0 ) {
+						printf(
+							' / $%.2f (%.1f%%)',
+							$budget,
+							( $month_spend / $budget ) * 100
+						);
+					}
+					echo '</p>';
+				}
+			},
+			'peptide-news-settings'
+		);
+
+		$this->add_setting( 'monthly_budget', __( 'Monthly Budget (USD)', 'peptide-news' ), 'render_monthly_budget_field', 'peptide_news_cost_section' );
+		$this->add_setting( 'budget_mode', __( 'Budget Enforcement', 'peptide-news' ), 'render_budget_mode_field', 'peptide_news_cost_section' );
+		$this->add_setting( 'cost_retention', __( 'Cost Log Retention (days)', 'peptide-news' ), 'render_cost_retention_field', 'peptide_news_cost_section' );
 	}
 
 	/**
 	 * Helper: register a single setting with a field callback.
 	 */
-	private function add_setting( $key, $label, $callback, $section ) {
+	private function add_setting( string $key, string $label, string $callback, string $section ): void {
 		$option_name = "peptide_news_{$key}";
 
 		$sanitize_cb = $this->get_sanitize_callback( $key );
@@ -242,7 +284,7 @@ class Peptide_News_Admin {
 	 * @param string $key Setting key (without prefix).
 	 * @return callable
 	 */
-	private function get_sanitize_callback( $key ) {
+	private function get_sanitize_callback( string $key ) {
 		$callbacks = array(
 			'fetch_interval'        => 'sanitize_text_field',
 			'articles_count'        => 'absint',
@@ -270,6 +312,16 @@ class Peptide_News_Admin {
 			'llm_keywords_model'    => array( $this, 'sanitize_model_id' ),
 			'llm_summary_model'     => array( $this, 'sanitize_model_id' ),
 			'llm_max_articles'      => 'absint',
+			'monthly_budget'        => function ( $value ) {
+				return max( 0.0, (float) $value );
+			},
+			'budget_mode'           => function ( $value ) {
+				$valid = array( 'disabled', 'hard_stop', 'warn_only' );
+				return in_array( $value, $valid, true ) ? $value : 'disabled';
+			},
+			'cost_retention'        => function ( $value ) {
+				return max( 30, absint( $value ) );
+			},
 		);
 
 		return isset( $callbacks[ $key ] ) ? $callbacks[ $key ] : 'sanitize_text_field';
@@ -281,7 +333,7 @@ class Peptide_News_Admin {
 	 * @param string $value Raw input.
 	 * @return string Sanitized model ID or default.
 	 */
-	public function sanitize_model_id( $value ) {
+	public function sanitize_model_id( string $value ): string {
 		$value = sanitize_text_field( $value );
 		if ( ! empty( $value ) && class_exists( 'Peptide_News_LLM' ) && ! Peptide_News_LLM::is_valid_model( $value ) ) {
 			add_settings_error(
@@ -300,13 +352,17 @@ class Peptide_News_Admin {
 	}
 
 	/**
-	 * Sanitize API keys. If a masked key is submitted (••••••••XXXX format),
-	 * keep the existing key. Otherwise, store the new full key.
+	 * Sanitize and encrypt API keys before storage.
 	 *
-	 * @param string $value Raw input.
-	 * @return string Stored API key (full value or existing).
+	 * If a masked key is submitted (••••••••XXXX format), the existing
+	 * encrypted value is preserved. New plaintext keys are encrypted
+	 * via Peptide_News_Encryption before being written to wp_options.
+	 *
+	 * @param string $value       Raw input from the settings form.
+	 * @param string $option_name The wp_options key for this API key.
+	 * @return string Encrypted API key or existing stored value.
 	 */
-	public function sanitize_api_key( $value, $option_name ) {
+	public function sanitize_api_key( string $value, string $option_name ): string {
 		$value = sanitize_text_field( $value );
 		if ( empty( $value ) ) {
 			return '';
@@ -317,19 +373,33 @@ class Peptide_News_Admin {
 			return get_option( $option_name, '' );
 		}
 
+		// Encrypt the new plaintext key before storing.
+		if ( class_exists( 'Peptide_News_Encryption' ) ) {
+			return Peptide_News_Encryption::encrypt( $value );
+		}
+
 		return $value;
 	}
 
 	/**
 	 * Get a masked version of an API key showing only the last 4 characters.
 	 *
-	 * @param string $key Full API key.
+	 * Decrypts the stored value first (handles both encrypted and legacy
+	 * plaintext keys transparently).
+	 *
+	 * @param string $key Stored API key (encrypted or plaintext).
 	 * @return string Masked key (e.g., ••••••••XXXX).
 	 */
-	private function mask_api_key( $key ) {
+	private function mask_api_key( string $key ): string {
 		if ( empty( $key ) ) {
 			return '';
 		}
+
+		// Decrypt before masking so we show the real key's last 4 chars.
+		if ( class_exists( 'Peptide_News_Encryption' ) ) {
+			$key = Peptide_News_Encryption::decrypt( $key );
+		}
+
 		$len = strlen( $key );
 		if ( $len <= 4 ) {
 			return str_repeat( '•', $len );
@@ -591,9 +661,57 @@ class Peptide_News_Admin {
 		echo '<p class="description">' . esc_html__( 'Maximum number of articles to analyze with AI per fetch cycle. Controls API costs and prevents cron timeouts.', 'peptide-news' ) . '</p>';
 	}
 
+	// --- Cost tracking field renderers ---
+
+	/**
+	 * Render the monthly budget input field.
+	 */
+	public function render_monthly_budget_field(): void {
+		$value = (float) get_option( 'peptide_news_monthly_budget', 0.0 );
+		printf(
+			'<input type="number" name="peptide_news_monthly_budget" value="%.2f" min="0" step="0.01" class="small-text" style="width:100px;" />',
+			$value
+		);
+		echo '<p class="description">' . esc_html__( 'Set to 0 to disable budget limits. The plugin will stop making API calls when this amount is reached (if enforcement is enabled).', 'peptide-news' ) . '</p>';
+	}
+
+	/**
+	 * Render the budget enforcement mode selector.
+	 */
+	public function render_budget_mode_field(): void {
+		$value = get_option( 'peptide_news_budget_mode', 'disabled' );
+		$modes = array(
+			'disabled'  => __( 'Disabled — track costs only, no limits', 'peptide-news' ),
+			'warn_only' => __( 'Warn only — log alerts at 50%, 80%, 100%', 'peptide-news' ),
+			'hard_stop' => __( 'Hard stop — block API calls when budget is reached', 'peptide-news' ),
+		);
+		echo '<select name="peptide_news_budget_mode">';
+		foreach ( $modes as $mode => $label ) {
+			printf(
+				'<option value="%s" %s>%s</option>',
+				esc_attr( $mode ),
+				selected( $value, $mode, false ),
+				esc_html( $label )
+			);
+		}
+		echo '</select>';
+	}
+
+	/**
+	 * Render the cost log retention field.
+	 */
+	public function render_cost_retention_field(): void {
+		$value = absint( get_option( 'peptide_news_cost_retention', 365 ) );
+		printf(
+			'<input type="number" name="peptide_news_cost_retention" value="%d" min="30" max="3650" class="small-text" />',
+			$value
+		);
+		echo '<p class="description">' . esc_html__( 'How long to keep detailed cost records. Minimum 30 days.', 'peptide-news' ) . '</p>';
+	}
+
 	// --- Page renderers ---
 
-	public function render_settings_page() {
+	public function render_settings_page(): void {
 		if ( ! current_user_can( 'manage_options' ) ) {
 			return;
 		}
@@ -895,7 +1013,7 @@ class Peptide_News_Admin {
 		echo '</div>';
 	}
 
-	public function render_dashboard_page() {
+	public function render_dashboard_page(): void {
 		if ( ! current_user_can( 'manage_options' ) ) {
 			return;
 		}
@@ -913,7 +1031,7 @@ class Peptide_News_Admin {
 	/**
 	 * Stream a CSV export of click analytics data.
 	 */
-	private function export_csv() {
+	private function export_csv(): void {
 		if ( ! current_user_can( 'manage_options' ) ) {
 			wp_die( esc_html__( 'Unauthorized.', 'peptide-news' ) );
 		}
@@ -947,10 +1065,25 @@ class Peptide_News_Admin {
 		exit;
 	}
 
-	public function render_articles_page() {
+	public function render_articles_page(): void {
 		if ( ! current_user_can( 'manage_options' ) ) {
 			return;
 		}
 		include PEPTIDE_NEWS_PLUGIN_DIR . 'admin/partials/articles-list.php';
+	}
+
+	/**
+	 * Render the LLM cost tracking dashboard page.
+	 *
+	 * Shows monthly budget status, daily cost chart, per-model breakdown,
+	 * and recent API call log. Data is loaded via AJAX for responsiveness.
+	 *
+	 * @since 2.4.0
+	 */
+	public function render_cost_dashboard_page(): void {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			return;
+		}
+		include PEPTIDE_NEWS_PLUGIN_DIR . 'admin/partials/cost-dashboard.php';
 	}
 }

@@ -1,4 +1,5 @@
 <?php
+declare( strict_types=1 );
 /**
  * Public-facing functionality.
  *
@@ -16,7 +17,7 @@ class Peptide_News_Public {
 	/** @var string */
 	private $version;
 
-	public function __construct( $plugin_name, $version ) {
+	public function __construct( string $plugin_name, string $version ) {
 		$this->plugin_name = $plugin_name;
 		$this->version     = $version;
 	}
@@ -24,7 +25,7 @@ class Peptide_News_Public {
 	/**
 	 * Register front-end CSS (enqueued on demand by the shortcode/widget).
 	 */
-	public function enqueue_styles() {
+	public function enqueue_styles(): void {
 		wp_register_style(
 			$this->plugin_name,
 			PEPTIDE_NEWS_PLUGIN_URL . 'public/css/public-style.css',
@@ -40,7 +41,7 @@ class Peptide_News_Public {
 	 * Loads React (from WordPress core), the feed component, and
 	 * passes configuration via wp_localize_script.
 	 */
-	public function enqueue_scripts() {
+	public function enqueue_scripts(): void {
 		// React feed component (depends on WP-bundled React).
 		wp_register_script(
 			$this->plugin_name . '-feed',
@@ -54,14 +55,14 @@ class Peptide_News_Public {
 	/**
 	 * Register the shortcode.
 	 */
-	public function register_shortcode() {
+	public function register_shortcode(): void {
 		add_shortcode( 'peptide_news', array( $this, 'render_shortcode' ) );
 	}
 
 	/**
 	 * Register the widget.
 	 */
-	public function register_widget() {
+	public function register_widget(): void {
 		register_widget( 'Peptide_News_Widget' );
 	}
 
@@ -75,7 +76,7 @@ class Peptide_News_Public {
 	 * @param array $atts Shortcode attributes.
 	 * @return string HTML output.
 	 */
-	public function render_shortcode( $atts ) {
+	public function render_shortcode( $atts ): string {
 		$atts = shortcode_atts( array(
 			'count' => get_option( 'peptide_news_articles_count', 10 ),
 		), $atts, 'peptide_news' );
@@ -102,7 +103,7 @@ class Peptide_News_Public {
 	/**
 	 * Handle AJAX click tracking with basic rate limiting.
 	 */
-	public function handle_click_tracking() {
+	public function handle_click_tracking(): void {
 		check_ajax_referer( 'peptide_news_track', 'nonce' );
 
 		$article_id = isset( $_POST['article_id'] ) ? absint( $_POST['article_id'] ) : 0;
@@ -142,7 +143,7 @@ class Peptide_News_Public {
 	 *
 	 * @return string
 	 */
-	private function get_or_create_session_id() {
+	private function get_or_create_session_id(): string {
 		if ( isset( $_COOKIE['pn_session_id'] ) ) {
 			return sanitize_text_field( wp_unslash( $_COOKIE['pn_session_id'] ) );
 		}

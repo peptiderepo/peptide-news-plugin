@@ -1,4 +1,5 @@
 <?php
+declare( strict_types=1 );
 /**
  * Fetches news from multiple sources and stores them in the database.
  *
@@ -16,7 +17,7 @@ class Peptide_News_Fetcher {
 	 * @param array $schedules Existing schedules.
 	 * @return array
 	 */
-	public function add_custom_cron_schedules( $schedules ) {
+	public function add_custom_cron_schedules( array $schedules ): array {
 		$schedules['every_fifteen_minutes'] = array(
 			'interval' => 900,
 			'display'  => __( 'Every 15 Minutes', 'peptide-news' ),
@@ -40,7 +41,7 @@ class Peptide_News_Fetcher {
 	 * Master fetch method — called by WP-Cron.
 	 * Uses a transient lock to prevent concurrent executions.
 	 */
-	public function fetch_all_sources() {
+	public function fetch_all_sources(): void {
 		// Prevent overlapping fetch jobs.
 		$lock_key = 'peptide_news_fetch_lock';
 		if ( get_transient( $lock_key ) ) {
@@ -61,7 +62,10 @@ class Peptide_News_Fetcher {
 
 		// Fetch from NewsAPI.
 		if ( get_option( 'peptide_news_newsapi_enabled', 0 ) ) {
-			$api_key = get_option( 'peptide_news_newsapi_key', '' );
+			$api_key_raw = get_option( 'peptide_news_newsapi_key', '' );
+			$api_key     = class_exists( 'Peptide_News_Encryption' )
+				? Peptide_News_Encryption::decrypt( $api_key_raw )
+				: $api_key_raw;
 			if ( ! empty( $api_key ) ) {
 				$newsapi_articles = $this->fetch_newsapi( $api_key );
 				$articles         = array_merge( $articles, $newsapi_articles );
@@ -128,7 +132,7 @@ class Peptide_News_Fetcher {
 	 *
 	 * @return array
 	 */
-	private function fetch_rss_feeds() {
+	private function fetch_rss_feeds(): array {
 		$feeds_raw = get_option( 'peptide_news_rss_feeds', '' );
 		$feeds     = array_filter( array_map( 'trim', explode( "\n", $feeds_raw ) ) );
 		$articles  = array();
@@ -175,7 +179,7 @@ class Peptide_News_Fetcher {
 	 * @param string         $feed_url
 	 * @return array Article data or empty array if processing failed.
 	 */
-	private function process_rss_item( $item, $feed_url ) {
+	private function process_rss_item( $item, string $feed_url ): array {
 		$pub_date = $item->get_date( 'Y-m-d H:i:s' );
 		if ( empty( $pub_date ) ) {
 			$pub_date = current_time( 'mysql' );
@@ -209,7 +213,7 @@ class Peptide_News_Fetcher {
 	 * @param string $api_key
 	 * @return array
 	 */
-	private function fetch_newsapi( $api_key ) {
+	private function fetch_newsapi( string $api_key ): array {
 		$keywords = get_option( 'peptide_news_search_keywords', 'peptide research' );
 		$articles = array();
 
@@ -267,7 +271,7 @@ class Peptide_News_Fetcher {
 	 * @param array $article
 	 * @return bool True if new article was inserted.
 	 */
-	private function store_article( $article ) {
+	private function store_article( array $article ): bool {
 		global $wpdb;
 
 		$table = $wpdb->prefix . 'peptide_news_articles';
@@ -310,7 +314,7 @@ class Peptide_News_Fetcher {
 	/**
 	 * Remove articles older than the retention period.
 	 */
-	private function prune_old_articles() {
+	private function prune_old_articles(): void {
 		global $wpdb;
 
 		$retention_days = (int) get_option( 'peptide_news_article_retention', 90 );
@@ -326,7 +330,7 @@ class Peptide_News_Fetcher {
 	/**
 	 * Clear all article transient caches.
 	 */
-	private function clear_article_cache() {
+	private function clear_article_cache(): void {
 		global $wpdb;
 		$wpdb->query(
 			$wpdb->prepare(
@@ -342,7 +346,7 @@ class Peptide_News_Fetcher {
 	/**
 	 * Invalidate REST API response caches matching the articles pattern.
 	 */
-	private function invalidate_rest_api_cache() {
+	private function invalidate_rest_api_cache(): void {
 		global $wpdb;
 		$wpdb->query(
 			$wpdb->prepare(
@@ -361,7 +365,7 @@ class Peptide_News_Fetcher {
 	 * @param SimplePie_Item $item
 	 * @return string Comma-separated categories.
 	 */
-	private function extract_categories( $item ) {
+	private function extract_categories( $item ): string {
 		$categories = $item->get_categories();
 		if ( empty( $categories ) ) {
 			return '';
@@ -393,7 +397,7 @@ class Peptide_News_Fetcher {
 	 * @param string         $article_url The article permalink.
 	 * @return string Source name or domain.
 	 */
-	private function resolve_article_source( $item, $feed_url, $article_url ) {
+	private function resolve_article_source( $item, string $feed_url, string $article_url ): string {
 		$feed_domain = $this->extract_domain( $feed_url );
 		$is_aggregator = in_array(
 			$feed_domain,
@@ -455,7 +459,7 @@ class Peptide_News_Fetcher {
 	 * @param string $url The URL to resolve.
 	 * @return string|false The final URL or false on failure.
 	 */
-	private function resolve_redirect_url( $url ) {
+	private function resolve_redirect_url( string $url ) {
 		if ( empty( $url ) ) {
 			return false;
 		}
@@ -505,7 +509,7 @@ class Peptide_News_Fetcher {
 	 *
 	 * @return int Number of articles updated.
 	 */
-	public function backfill_article_sources() {
+	public function backfill_article_sources(): int {
 		global $wpdb;
 
 		$table       = $wpdb->prefix . 'peptide_news_articles';
@@ -572,7 +576,7 @@ class Peptide_News_Fetcher {
 	/**
 	 * AJAX handler for the backfill action.
 	 */
-	public function ajax_backfill_sources() {
+	public function ajax_backfill_sources(): void {
 		check_ajax_referer( 'peptide_news_admin', 'nonce' );
 
 		if ( ! current_user_can( 'manage_options' ) ) {
@@ -589,7 +593,7 @@ class Peptide_News_Fetcher {
 	 * @param string $url
 	 * @return string
 	 */
-	private function extract_domain( $url ) {
+	private function extract_domain( string $url ): string {
 		$host = wp_parse_url( $url, PHP_URL_HOST );
 		return $host ? preg_replace( '/^www\./', '', $host ) : 'unknown';
 	}
@@ -599,7 +603,7 @@ class Peptide_News_Fetcher {
 	 *
 	 * @param string $message
 	 */
-	private function log_error( $message ) {
+	private function log_error( string $message ): void {
 		if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
 			error_log( '[Peptide News] ' . $message );
 		}

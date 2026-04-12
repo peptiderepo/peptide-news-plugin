@@ -1,4 +1,5 @@
 <?php
+declare( strict_types=1 );
 /**
  * Fired during plugin activation.
  *
@@ -11,7 +12,7 @@ class Peptide_News_Activator {
 	/**
 	 * Create custom tables and schedule cron.
 	 */
-	public static function activate() {
+	public static function activate(): void {
 		self::create_tables();
 		self::set_default_options();
 		self::schedule_cron();
@@ -20,12 +21,17 @@ class Peptide_News_Activator {
 		if ( class_exists( 'Peptide_News_Logger' ) ) {
 			Peptide_News_Logger::create_table();
 		}
+
+		// Create the LLM cost tracking table (idempotent via dbDelta).
+		if ( class_exists( 'Peptide_News_Cost_Tracker' ) ) {
+			Peptide_News_Cost_Tracker::create_table();
+		}
 	}
 
 	/**
 	 * Create the articles and analytics database tables.
 	 */
-	private static function create_tables() {
+	private static function create_tables(): void {
 		global $wpdb;
 
 		$charset_collate = $wpdb->get_charset_collate();
@@ -107,7 +113,7 @@ class Peptide_News_Activator {
 	/**
 	 * Set sensible default option values.
 	 */
-	private static function set_default_options() {
+	private static function set_default_options(): void {
 		$defaults = array(
 			'fetch_interval'       => 'twicedaily',
 			'articles_count'       => 10,
@@ -128,6 +134,9 @@ class Peptide_News_Activator {
 			'llm_keywords_model'   => 'google/gemini-2.0-flash-001',
 			'llm_summary_model'    => 'google/gemini-2.0-flash-001',
 			'llm_max_articles'     => 10,
+			'monthly_budget'       => 0,
+			'budget_mode'          => 'disabled',
+			'cost_retention'       => 365,
 		);
 
 		foreach ( $defaults as $key => $value ) {
@@ -140,7 +149,7 @@ class Peptide_News_Activator {
 	/**
 	 * Schedule the cron event based on the configured interval.
 	 */
-	private static function schedule_cron() {
+	private static function schedule_cron(): void {
 		$interval = get_option( 'peptide_news_fetch_interval', 'twicedaily' );
 
 		if ( ! wp_next_scheduled( 'peptide_news_cron_fetch' ) ) {
@@ -151,7 +160,7 @@ class Peptide_News_Activator {
 	/**
 	 * Add foreign key constraints to tables.
 	 */
-	private static function add_foreign_key_constraints( $articles_table, $clicks_table, $daily_table ) {
+	private static function add_foreign_key_constraints( string $articles_table, string $clicks_table, string $daily_table ): void {
 		global $wpdb;
 
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching

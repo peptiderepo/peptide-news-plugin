@@ -1,13 +1,17 @@
 <?php
+declare( strict_types=1 );
+
 if ( ! defined( 'WP_UNINSTALL_PLUGIN' ) ) {
     exit;
 }
 global $wpdb;
 $prefix = $wpdb->prefix;
 
-// Drop custom tables.
+// Drop custom tables (order matters: child tables first due to FK constraints).
 $wpdb->query( "DROP TABLE IF EXISTS {$prefix}peptide_news_clicks" );
 $wpdb->query( "DROP TABLE IF EXISTS {$prefix}peptide_news_daily_stats" );
+$wpdb->query( "DROP TABLE IF EXISTS {$prefix}peptide_news_log" );
+$wpdb->query( "DROP TABLE IF EXISTS {$prefix}peptide_news_llm_costs" );
 $wpdb->query( "DROP TABLE IF EXISTS {$prefix}peptide_news_articles" );
 
 // Delete all plugin options.
