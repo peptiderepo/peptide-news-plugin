@@ -1,5 +1,4 @@
 <?php
-declare( strict_types=1 );
 /**
  * Plugin Name:       Peptide News Aggregator
  * Plugin URI:        https://github.com/peptiderepo/peptide-news-plugin
@@ -14,6 +13,8 @@ declare( strict_types=1 );
  * Requires at least: 5.8
  * Requires PHP:      7.4
  */
+
+declare( strict_types=1 );
 
 // Abort if called directly.
 if ( ! defined( 'WPINC' ) ) {

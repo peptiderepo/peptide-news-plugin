@@ -380,8 +380,8 @@ class Peptide_News_Cost_Tracker {
 			'total_cost'     => (float) ( $totals->total_cost ?? 0 ),
 			'total_tokens'   => (int) ( $totals->total_tokens ?? 0 ),
 			'total_requests' => (int) ( $totals->total_requests ?? 0 ),
-			'by_model'       => $by_model ?: array(),
-			'by_operation'   => $by_operation ?: array(),
+			'by_model'       => ! empty( $by_model ) ? $by_model : array(),
+			'by_operation'   => ! empty( $by_operation ) ? $by_operation : array(),
 		);
 	}
 
@@ -399,7 +399,7 @@ class Peptide_News_Cost_Tracker {
 		$table = $wpdb->prefix . 'peptide_news_llm_costs';
 
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-		return $wpdb->get_results(
+		$results = $wpdb->get_results(
 			$wpdb->prepare(
 				"SELECT
 					DATE(created_at) AS date,
@@ -413,7 +413,9 @@ class Peptide_News_Cost_Tracker {
 				$start_date . ' 00:00:00',
 				$end_date . ' 23:59:59'
 			)
-		) ?: array();
+		);
+
+		return ! empty( $results ) ? $results : array();
 	}
 
 	/**
@@ -427,12 +429,14 @@ class Peptide_News_Cost_Tracker {
 		$table = $wpdb->prefix . 'peptide_news_llm_costs';
 
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-		return $wpdb->get_results(
+		$results = $wpdb->get_results(
 			$wpdb->prepare(
 				"SELECT * FROM {$table} ORDER BY created_at DESC LIMIT %d",
 				$limit
 			)
-		) ?: array();
+		);
+
+		return ! empty( $results ) ? $results : array();
 	}
 
 	/**
