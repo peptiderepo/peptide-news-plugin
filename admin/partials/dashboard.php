@@ -97,7 +97,7 @@ $total_articles = count( $top_articles );
 				<?php if ( empty( $top_articles ) ) : ?>
 					<tr><td colspan="6"><?php esc_html_e( 'No click data for this period.', 'peptide-news' ); ?></td></tr>
 				<?php else : ?>
-					<?php foreach( $top_articles as $i => $article ) : ?>
+					<?php foreach ( $top_articles as $i => $article ) : ?>
 						<tr>
 							<td><?php echo esc_html( $i + 1 ); ?></td>
 							<td><a href="<?php echo esc_url( $article->source_url ); ?>" target="_blank" rel="noopener"><?php echo esc_html( $article->title ); ?></a></td>
@@ -128,7 +128,7 @@ $total_articles = count( $top_articles );
 				<?php if ( empty( $topics ) ) : ?>
 					<tr><td colspan="4"><?php esc_html_e( 'No topic data for this period.', 'peptide-news' ); ?></td></tr>
 				<?php else : ?>
-					<?php foreach( $topics as $i => $topic ) : ?>
+					<?php foreach ( $topics as $i => $topic ) : ?>
 						<tr>
 							<td><?php echo esc_html( $i + 1 ); ?></td>
 							<td><?php echo esc_html( $topic['topic'] ); ?></td>
