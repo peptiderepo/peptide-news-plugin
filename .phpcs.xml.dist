@@ -49,6 +49,9 @@
     <rule ref="Universal.Files.SeparateFunctionsFromOO">
         <type>warning</type>
     </rule>
+    <rule ref="Generic.Files.OneObjectStructurePerFile">
+        <type>warning</type>
+    </rule>
 
     <rule ref="WordPress-Extra">
         <!-- Don't require Yoda conditions for readability -->

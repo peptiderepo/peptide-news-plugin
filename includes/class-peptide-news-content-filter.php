@@ -398,8 +398,7 @@ class Peptide_News_Content_Filter {
 
 		// Use XML-style delimiters to isolate untrusted article data from the prompt.
 		// This mitigates prompt injection by clearly separating instructions from data.
-		return
-			"You are a content classifier. Your ONLY task is to classify the article below.\n" .
+		$prompt = "You are a content classifier. Your ONLY task is to classify the article below.\n" .
 			"Respond with EXACTLY one word: EDITORIAL or PROMOTIONAL.\n" .
 			"EDITORIAL = genuine news, research, or journalism.\n" .
 			"PROMOTIONAL = press releases, ads, sponsored content, product launches, " .
@@ -412,6 +411,7 @@ class Peptide_News_Content_Filter {
 			sprintf( "<content>%s</content>\n", $content_trimmed ) .
 			"</article_to_classify>\n\n" .
 			"Classification (one word only):";
+		return $prompt;
 	}
 
 	/**
