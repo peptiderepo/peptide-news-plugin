@@ -1,4 +1,5 @@
 <?php
+declare( strict_types=1 );
 /**
  * Register all actions and filters for the plugin.
  *
@@ -50,7 +51,7 @@ class Peptide_News_Loader {
 	 * @param int    $priority      Optional. The priority at which the function should be fired. Default is 10.
 	 * @param int    $accepted_args Optional. The number of arguments that should be passed to the $callback. Default is 1.
 	 */
-	public function add_action( $hook, $component, $callback, $priority = 10, $accepted_args = 1 ) {
+	public function add_action( string $hook, object $component, string $callback, int $priority = 10, int $accepted_args = 1 ): void {
 		$this->actions = $this->add( $this->actions, $hook, $component, $callback, $priority, $accepted_args );
 	}
 
@@ -64,7 +65,7 @@ class Peptide_News_Loader {
 	 * @param int    $priority      Optional. The priority at which the function should be fired. Default is 10.
 	 * @param int    $accepted_args Optional. The number of arguments that should be passed to the $callback. Default is 1.
 	 */
-	public function add_filter( $hook, $component, $callback, $priority = 10, $accepted_args = 1 ) {
+	public function add_filter( string $hook, object $component, string $callback, int $priority = 10, int $accepted_args = 1 ): void {
 		$this->filters = $this->add( $this->filters, $hook, $component, $callback, $priority, $accepted_args );
 	}
 
@@ -81,7 +82,7 @@ class Peptide_News_Loader {
 	 * @param  int    $accepted_args The number of arguments that should be passed to the $callback.
 	 * @return array  The collection of actions and filters registered with WordPress.
 	 */
-	private function add( $hooks, $hook, $component, $callback, $priority, $accepted_args ) {
+	private function add( array $hooks, string $hook, object $component, string $callback, int $priority, int $accepted_args ): array {
 		$hooks[] = array(
 			'hook'          => $hook,
 			'component'     => $component,
@@ -98,7 +99,7 @@ class Peptide_News_Loader {
 	 *
 	 * @since 1.0.0
 	 */
-	public function run() {
+	public function run(): void {
 		foreach ( $this->filters as $hook ) {
 			add_filter(
 				$hook['hook'],

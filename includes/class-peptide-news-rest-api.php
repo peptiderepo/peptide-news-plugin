@@ -1,4 +1,5 @@
 <?php
+declare( strict_types=1 );
 /**
  * REST API endpoints for external analytics access.
  *
@@ -22,7 +23,7 @@ class Peptide_News_Rest_API {
 	/**
 	 * Register REST routes.
 	 */
-	public function register_routes() {
+	public function register_routes(): void {
 
 		// Public: list articles.
 		register_rest_route( self::API_NAMESPACE, '/articles', array(
@@ -83,7 +84,7 @@ class Peptide_News_Rest_API {
 	 *
 	 * @return array
 	 */
-	private function get_date_range_args() {
+	private function get_date_range_args(): array {
 		return array(
 			'start_date' => array(
 				'default'            => gmdate( 'Y-m-d', strtotime( '-30 days' ) ),
@@ -216,7 +217,7 @@ class Peptide_News_Rest_API {
 	 * @param string $source_url The source URL (used to extract domain-based publisher names).
 	 * @return string Cleaned text.
 	 */
-	private function strip_source_suffix( $text, $source, $source_url = '' ) {
+	private function strip_source_suffix( string $text, string $source, string $source_url = '' ): string {
 		if ( empty( $text ) ) {
 			return $text;
 		}
@@ -387,7 +388,7 @@ class Peptide_News_Rest_API {
 	 *
 	 * @since 2.1.0
 	 */
-	public static function ajax_delete_articles() {
+	public static function ajax_delete_articles(): void {
 		check_ajax_referer( 'peptide_news_admin', 'nonce' );
 
 		if ( ! current_user_can( 'manage_options' ) ) {

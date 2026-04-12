@@ -1,4 +1,5 @@
 <?php
+declare( strict_types=1 );
 /**
  * Fired during plugin deactivation.
  *
@@ -8,7 +9,7 @@
  */
 class Peptide_News_Deactivator {
 
-	public static function deactivate() {
+	public static function deactivate(): void {
 		wp_clear_scheduled_hook( 'peptide_news_cron_fetch' );
 	}
 }

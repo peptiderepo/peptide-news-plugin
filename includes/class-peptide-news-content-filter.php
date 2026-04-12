@@ -1,4 +1,5 @@
 <?php
+declare( strict_types=1 );
 /**
  * Content filter for detecting and removing ads, press releases,
  * and promotional content from fetched articles.
@@ -122,7 +123,7 @@ class Peptide_News_Content_Filter {
 	 *
 	 * @return bool
 	 */
-	public static function is_enabled() {
+	public static function is_enabled(): bool {
 		return (bool) get_option( 'peptide_news_filter_enabled', 1 );
 	}
 
@@ -134,7 +135,7 @@ class Peptide_News_Content_Filter {
 	 *
 	 * @return bool
 	 */
-	public static function is_llm_filter_enabled() {
+	public static function is_llm_filter_enabled(): bool {
 		if ( ! (bool) get_option( 'peptide_news_filter_llm_enabled', 0 ) ) {
 			return false;
 		}
@@ -151,7 +152,7 @@ class Peptide_News_Content_Filter {
 	 * @param array $articles Array of article arrays from fetch_rss_feeds() / fetch_newsapi().
 	 * @return array Filtered articles with promotional content removed.
 	 */
-	public static function filter_articles( $articles ) {
+	public static function filter_articles( array $articles ): array {
 		if ( ! self::is_enabled() || empty( $articles ) ) {
 			return $articles;
 		}
@@ -227,7 +228,7 @@ class Peptide_News_Content_Filter {
 	 * @param int   $body_threshold   Minimum body keyword matches to flag.
 	 * @return array                  Array with 'verdict' (clean|borderline|promotional), 'rule', 'score'.
 	 */
-	public static function evaluate_article( $article, $title_keywords, $body_keywords, $blocked_domains, $body_threshold ) {
+	public static function evaluate_article( array $article, array $title_keywords, array $body_keywords, array $blocked_domains, int $body_threshold ): array {
 		$score = 0;
 		$rule  = '';
 
@@ -343,9 +344,12 @@ class Peptide_News_Content_Filter {
 	 * @param array $article Article data array.
 	 * @return string 'editorial' or 'promotional'.
 	 */
-	private static function classify_with_llm( $article ) {
-		$api_key = get_option( 'peptide_news_openrouter_api_key', '' );
-		$model   = get_option( 'peptide_news_filter_llm_model', '' );
+	private static function classify_with_llm( array $article ): string {
+		$api_key_raw = get_option( 'peptide_news_openrouter_api_key', '' );
+		$api_key     = class_exists( 'Peptide_News_Encryption' )
+			? Peptide_News_Encryption::decrypt( $api_key_raw )
+			: $api_key_raw;
+		$model = get_option( 'peptide_news_filter_llm_model', '' );
 
 		// Fall back to the keywords model if no dedicated filter model is set.
 		if ( empty( $model ) ) {
@@ -387,7 +391,7 @@ class Peptide_News_Content_Filter {
 	 * @param array $article Article data.
 	 * @return string Prompt text.
 	 */
-	private static function build_classification_prompt( $article ) {
+	private static function build_classification_prompt( array $article ): string {
 		$title   = $article['title'] ?? '';
 		$excerpt = $article['excerpt'] ?? '';
 		$content = $article['content'] ?? '';
@@ -420,7 +424,7 @@ class Peptide_News_Content_Filter {
 	 * @param string $sensitivity 'strict', 'moderate', or 'lenient'.
 	 * @return int Number of body keyword matches required.
 	 */
-	private static function get_body_threshold( $sensitivity ) {
+	private static function get_body_threshold( string $sensitivity ): int {
 		$thresholds = array(
 			'strict'   => 1,
 			'moderate' => 2,
@@ -435,7 +439,7 @@ class Peptide_News_Content_Filter {
 	 *
 	 * @return array
 	 */
-	public static function get_title_keywords() {
+	public static function get_title_keywords(): array {
 		$custom = get_option( 'peptide_news_filter_title_keywords', '' );
 
 		if ( ! empty( $custom ) ) {
@@ -450,7 +454,7 @@ class Peptide_News_Content_Filter {
 	 *
 	 * @return array
 	 */
-	public static function get_body_keywords() {
+	public static function get_body_keywords(): array {
 		$custom = get_option( 'peptide_news_filter_body_keywords', '' );
 
 		if ( ! empty( $custom ) ) {
@@ -465,7 +469,7 @@ class Peptide_News_Content_Filter {
 	 *
 	 * @return array
 	 */
-	public static function get_blocked_domains() {
+	public static function get_blocked_domains(): array {
 		$custom = get_option( 'peptide_news_filter_blocked_domains', '' );
 
 		if ( ! empty( $custom ) ) {
@@ -480,7 +484,7 @@ class Peptide_News_Content_Filter {
 	 *
 	 * @return string
 	 */
-	public static function get_default_title_keywords_text() {
+	public static function get_default_title_keywords_text(): string {
 		return implode( "\n", self::$default_title_keywords );
 	}
 
@@ -489,7 +493,7 @@ class Peptide_News_Content_Filter {
 	 *
 	 * @return string
 	 */
-	public static function get_default_body_keywords_text() {
+	public static function get_default_body_keywords_text(): string {
 		return implode( "\n", self::$default_body_keywords );
 	}
 
@@ -498,7 +502,7 @@ class Peptide_News_Content_Filter {
 	 *
 	 * @return string
 	 */
-	public static function get_default_blocked_domains_text() {
+	public static function get_default_blocked_domains_text(): string {
 		return implode( "\n", self::$default_blocked_domains );
 	}
 
@@ -509,7 +513,7 @@ class Peptide_News_Content_Filter {
 	 * @param int $removed     Articles removed by the filter.
 	 * @param int $llm_checked Articles sent to LLM for classification.
 	 */
-	private static function update_filter_stats( $total, $removed, $llm_checked ) {
+	private static function update_filter_stats( int $total, int $removed, int $llm_checked ): void {
 		update_option( 'peptide_news_filter_last_run', array(
 			'time'        => current_time( 'mysql' ),
 			'total'       => $total,
@@ -524,7 +528,7 @@ class Peptide_News_Content_Filter {
 	 *
 	 * @param string $message Log message.
 	 */
-	private static function log( $message ) {
+	private static function log( string $message ): void {
 		if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
 			error_log( self::LOG_PREFIX . ' ' . $message );
 		}

@@ -1,4 +1,5 @@
 <?php
+declare( strict_types=1 );
 /**
  * Plugin Logger.
  *
@@ -21,7 +22,7 @@ class Peptide_News_Logger {
 	/**
 	 * Return the log table name.
 	 */
-	public static function table() {
+	public static function table(): string {
 		global $wpdb;
 		return $wpdb->prefix . 'peptide_news_log';
 	}
@@ -37,7 +38,7 @@ class Peptide_News_Logger {
 	 * @param string $message Human-readable message.
 	 * @param string $context Category tag (fetch, llm, admin, cron, general).
 	 */
-	public static function log( $level, $message, $context = 'general' ) {
+	public static function log( string $level, string $message, string $context = 'general' ): void {
 		global $wpdb;
 
 		$wpdb->insert(
@@ -56,22 +57,22 @@ class Peptide_News_Logger {
 	}
 
 	/** Convenience: info level. */
-	public static function info( $message, $context = 'general' ) {
+	public static function info( string $message, string $context = 'general' ): void {
 		self::log( self::LEVEL_INFO, $message, $context );
 	}
 
 	/** Convenience: warning level. */
-	public static function warning( $message, $context = 'general' ) {
+	public static function warning( string $message, string $context = 'general' ): void {
 		self::log( self::LEVEL_WARNING, $message, $context );
 	}
 
 	/** Convenience: error level. */
-	public static function error( $message, $context = 'general' ) {
+	public static function error( string $message, string $context = 'general' ): void {
 		self::log( self::LEVEL_ERROR, $message, $context );
 	}
 
 	/** Convenience: debug level (only writes when WP_DEBUG is on). */
-	public static function debug( $message, $context = 'general' ) {
+	public static function debug( string $message, string $context = 'general' ): void {
 		if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
 			self::log( self::LEVEL_DEBUG, $message, $context );
 		}
@@ -94,7 +95,7 @@ class Peptide_News_Logger {
 	 * }
 	 * @return array { 'rows' => array, 'total' => int }
 	 */
-	public static function get_logs( $args = array() ) {
+	public static function get_logs( array $args = array() ): array {
 		global $wpdb;
 
 		$defaults = array(
@@ -145,7 +146,7 @@ class Peptide_News_Logger {
 	/**
 	 * Remove rows beyond the MAX_ROWS cap.
 	 */
-	private static function maybe_prune() {
+	private static function maybe_prune(): void {
 		global $wpdb;
 		$table = self::table();
 
@@ -168,7 +169,7 @@ class Peptide_News_Logger {
 	/**
 	 * Clear all log entries.
 	 */
-	public static function clear() {
+	public static function clear(): void {
 		global $wpdb;
 		$wpdb->query( "TRUNCATE TABLE " . self::table() );
 	}
@@ -180,7 +181,7 @@ class Peptide_News_Logger {
 	/**
 	 * AJAX: fetch paginated log entries.
 	 */
-	public static function ajax_get_logs() {
+	public static function ajax_get_logs(): void {
 		check_ajax_referer( 'peptide_news_admin', 'nonce' );
 
 		if ( ! current_user_can( 'manage_options' ) ) {
@@ -210,7 +211,7 @@ class Peptide_News_Logger {
 	/**
 	 * AJAX: clear all log entries.
 	 */
-	public static function ajax_clear_logs() {
+	public static function ajax_clear_logs(): void {
 		check_ajax_referer( 'peptide_news_admin', 'nonce' );
 
 		if ( ! current_user_can( 'manage_options' ) ) {
@@ -230,7 +231,7 @@ class Peptide_News_Logger {
 	/**
 	 * Create the log table (called from activator / upgrade check).
 	 */
-	public static function create_table() {
+	public static function create_table(): void {
 		global $wpdb;
 
 		$table           = self::table();
