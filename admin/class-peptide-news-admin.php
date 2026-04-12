@@ -244,28 +244,32 @@ class Peptide_News_Admin {
 	 */
 	private function get_sanitize_callback( $key ) {
 		$callbacks = array(
-			'fetch_interval'       => 'sanitize_text_field',
-			'articles_count'       => 'absint',
-			'search_keywords'      => 'sanitize_text_field',
-			'rss_enabled'          => 'absint',
-			'rss_feeds'            => 'sanitize_textarea_field',
-			'newsapi_enabled'      => 'absint',
-			'newsapi_key'          => function ( $value ) { return $this->sanitize_api_key( $value, 'peptide_news_newsapi_key' ); },
-			'article_retention'    => 'absint',
-			'analytics_retention'  => 'absint',
-			'anonymize_ip'         => 'absint',
-			'filter_enabled'          => 'absint',
-			'filter_sensitivity'      => 'sanitize_text_field',
-			'filter_llm_enabled'      => 'absint',
-			'filter_llm_model'        => array( $this, 'sanitize_model_id' ),
-			'filter_title_keywords'   => 'sanitize_textarea_field',
-			'filter_body_keywords'    => 'sanitize_textarea_field',
-			'filter_blocked_domains'  => 'sanitize_textarea_field',
-			'llm_enabled'          => 'absint',
-			'openrouter_api_key'   => function ( $value ) { return $this->sanitize_api_key( $value, 'peptide_news_openrouter_api_key' ); },
-			'llm_keywords_model'   => array( $this, 'sanitize_model_id' ),
-			'llm_summary_model'    => array( $this, 'sanitize_model_id' ),
-			'llm_max_articles'     => 'absint',
+			'fetch_interval'        => 'sanitize_text_field',
+			'articles_count'        => 'absint',
+			'search_keywords'       => 'sanitize_text_field',
+			'rss_enabled'           => 'absint',
+			'rss_feeds'             => 'sanitize_textarea_field',
+			'newsapi_enabled'       => 'absint',
+			'newsapi_key'           => function ( $value ) {
+				return $this->sanitize_api_key( $value, 'peptide_news_newsapi_key' );
+			},
+			'article_retention'     => 'absint',
+			'analytics_retention'   => 'absint',
+			'anonymize_ip'          => 'absint',
+			'filter_enabled'        => 'absint',
+			'filter_sensitivity'    => 'sanitize_text_field',
+			'filter_llm_enabled'    => 'absint',
+			'filter_llm_model'      => array( $this, 'sanitize_model_id' ),
+			'filter_title_keywords' => 'sanitize_textarea_field',
+			'filter_body_keywords'  => 'sanitize_textarea_field',
+			'filter_blocked_domains' => 'sanitize_textarea_field',
+			'llm_enabled'           => 'absint',
+			'openrouter_api_key'    => function ( $value ) {
+				return $this->sanitize_api_key( $value, 'peptide_news_openrouter_api_key' );
+			},
+			'llm_keywords_model'    => array( $this, 'sanitize_model_id' ),
+			'llm_summary_model'     => array( $this, 'sanitize_model_id' ),
+			'llm_max_articles'      => 'absint',
 		);
 
 		return isset( $callbacks[ $key ] ) ? $callbacks[ $key ] : 'sanitize_text_field';
@@ -550,7 +554,13 @@ class Peptide_News_Admin {
 		);
 		echo '<p class="description">' . wp_kses(
 			__( 'Get an API key at <a href="https://openrouter.ai/keys" target="_blank" rel="noopener">openrouter.ai/keys</a>.', 'peptide-news' ),
-			array( 'a' => array( 'href' => array(), 'target' => array(), 'rel' => array() ) )
+			array(
+				'a' => array(
+					'href'   => array(),
+					'target' => array(),
+					'rel'    => array(),
+				),
+			)
 		) . '</p>';
 	}
 
@@ -718,13 +728,15 @@ class Peptide_News_Admin {
 		if ( $last_fetch ) {
 			$extra_info = '';
 			if ( isset( $last_fetch['filtered_out'] ) && $last_fetch['filtered_out'] > 0 ) {
-				$extra_info .= sprintf( ' | %s: %d',
+				$extra_info .= sprintf(
+					' | %s: %d',
 					esc_html__( 'Filtered out', 'peptide-news' ),
 					$last_fetch['filtered_out']
 				);
 			}
 			if ( isset( $last_fetch['ai_processed'] ) ) {
-				$extra_info .= sprintf( ' | %s: %d',
+				$extra_info .= sprintf(
+					' | %s: %d',
 					esc_html__( 'AI analyzed', 'peptide-news' ),
 					$last_fetch['ai_processed']
 				);
@@ -734,10 +746,10 @@ class Peptide_News_Admin {
 				esc_html__( 'Last fetch', 'peptide-news' ),
 				esc_html( $last_fetch['time'] ),
 				esc_html__( 'Found', 'peptide-news' ),
-				$last_fetch['found'],
+				intval( $last_fetch['found'] ),
 				esc_html__( 'New stored', 'peptide-news' ),
-				$last_fetch['new_stored'],
-				$extra_info
+				intval( $last_fetch['new_stored'] ),
+				esc_html( $extra_info )
 			);
 		}
 
@@ -751,9 +763,9 @@ class Peptide_News_Admin {
 		// Shortcode usage info.
 		echo '<h2>' . esc_html__( 'Usage', 'peptide-news' ) . '</h2>';
 		echo '<p><strong>' . esc_html__( 'Shortcode:', 'peptide-news' ) . '</strong> <code>[peptide_news]</code> ' .
-			 esc_html__( 'or', 'peptide-news' ) . ' <code>[peptide_news count="5"]</code></p>';
+			esc_html__( 'or', 'peptide-news' ) . ' <code>[peptide_news count="5"]</code></p>';
 		echo '<p><strong>' . esc_html__( 'Widget:', 'peptide-news' ) . '</strong> ' .
-			 esc_html__( 'Add "Peptide News" from Appearance > Widgets.', 'peptide-news' ) . '</p>';
+			esc_html__( 'Add "Peptide News" from Appearance > Widgets.', 'peptide-news' ) . '</p>';
 
 		// ── Plugin Log Viewer ──────────────────────────────────────────
 		echo '<h2>' . esc_html__( 'Plugin Log', 'peptide-news' ) . '</h2>';
@@ -909,7 +921,7 @@ class Peptide_News_Admin {
 		$raw_start  = isset( $_GET['start_date'] ) ? sanitize_text_field( wp_unslash( $_GET['start_date'] ) ) : '';
 		$raw_end    = isset( $_GET['end_date'] ) ? sanitize_text_field( wp_unslash( $_GET['end_date'] ) ) : '';
 		$start_date = preg_match( '/^\d{4}-\d{2}-\d{2}$/', $raw_start ) ? $raw_start : gmdate( 'Y-m-d', strtotime( '-30 days' ) );
-		$end_date   = preg_match( '/^\d{4}-\d{2}-\d{2}$/', $raw_end )   ? $raw_end   : gmdate( 'Y-m-d' );
+		$end_date   = preg_match( '/^\d{4}-\d{2}-\d{2}$/', $raw_end ) ? $raw_end : gmdate( 'Y-m-d' );
 
 		$data = Peptide_News_Analytics::export_clicks_csv( $start_date, $end_date );
 
