@@ -17,6 +17,16 @@ declare( strict_types=1 );
  * @see Peptide_News_Admin_Settings_Page — Settings page + log viewer
  * @see Peptide_News_Admin_Dashboard_Pages — Dashboard/articles/costs pages
  */
+
+// Load delegate classes that this orchestrator depends on.
+require_once __DIR__ . '/class-pn-admin-assets.php';
+require_once __DIR__ . '/class-pn-admin-menu.php';
+require_once __DIR__ . '/class-pn-admin-field-renderers.php';
+require_once __DIR__ . '/class-pn-admin-settings.php';
+require_once __DIR__ . '/class-pn-admin-log-viewer.php';
+require_once __DIR__ . '/class-pn-admin-settings-page.php';
+require_once __DIR__ . '/class-pn-admin-dashboard-pages.php';
+
 class Peptide_News_Admin {
 
 	/** @var string Plugin name/slug */
