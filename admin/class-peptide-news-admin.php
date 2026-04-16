@@ -1,5 +1,4 @@
 <?php
-declare( strict_types=1 );
 /**
  * Admin-specific functionality.
  *
@@ -17,6 +16,16 @@ declare( strict_types=1 );
  * @see Peptide_News_Admin_Settings_Page — Settings page + log viewer
  * @see Peptide_News_Admin_Dashboard_Pages — Dashboard/articles/costs pages
  */
+
+// Load delegate classes that this orchestrator depends on.
+require_once __DIR__ . '/class-pn-admin-assets.php';
+require_once __DIR__ . '/class-pn-admin-menu.php';
+require_once __DIR__ . '/class-pn-admin-field-renderers.php';
+require_once __DIR__ . '/class-pn-admin-settings.php';
+require_once __DIR__ . '/class-pn-admin-log-viewer.php';
+require_once __DIR__ . '/class-pn-admin-settings-page.php';
+require_once __DIR__ . '/class-pn-admin-dashboard-pages.php';
+
 class Peptide_News_Admin {
 
 	/** @var string Plugin name/slug */
@@ -139,5 +148,32 @@ class Peptide_News_Admin {
 	 */
 	public function render_cost_dashboard_page(): void {
 		$this->dashboard_pages->render_cost_dashboard_page();
+	}
+
+	/**
+	 * Sanitize and validate an OpenRouter model ID.
+	 *
+	 * Delegates to the settings class. Kept on the orchestrator because
+	 * WordPress register_setting() callbacks may reference $this.
+	 *
+	 * @param string $value Raw model ID from form input.
+	 * @return string Sanitized model ID or empty string on failure.
+	 */
+	public function sanitize_model_id( string $value ): string {
+		return $this->settings->sanitize_model_id( $value );
+	}
+
+	/**
+	 * Sanitize an API key value — encrypt if new, preserve if masked.
+	 *
+	 * Delegates to the settings class. Kept on the orchestrator because
+	 * WordPress register_setting() callbacks may reference $this.
+	 *
+	 * @param string $value       Raw API key from form input.
+	 * @param string $option_name The WP option being saved.
+	 * @return string Encrypted key or previous value if input was masked.
+	 */
+	public function sanitize_api_key( string $value, string $option_name = '' ): string {
+		return $this->settings->sanitize_api_key( $value, $option_name );
 	}
 }

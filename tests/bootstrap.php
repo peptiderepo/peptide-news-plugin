@@ -300,6 +300,55 @@ if ( ! function_exists( 'selected' ) ) {
         return $result;
     }
 }
+if ( ! function_exists( 'checked' ) ) {
+    function checked( $checked, $current = true, $echo = true ) {
+        $result = (string) $checked === (string) $current ? ' checked="checked"' : '';
+        if ( $echo ) {
+            echo $result;
+        }
+        return $result;
+    }
+}
+if ( ! function_exists( 'wp_enqueue_style' ) ) {
+    function wp_enqueue_style( $handle, $src = '', $deps = array(), $ver = false, $media = 'all' ) {
+        return true;
+    }
+}
+if ( ! function_exists( 'wp_enqueue_script' ) ) {
+    function wp_enqueue_script( $handle, $src = '', $deps = array(), $ver = false, $args = array() ) {
+        return true;
+    }
+}
+if ( ! function_exists( 'wp_localize_script' ) ) {
+    function wp_localize_script( $handle, $object_name, $l10n ) {
+        return true;
+    }
+}
+if ( ! function_exists( 'add_menu_page' ) ) {
+    function add_menu_page( $page_title, $menu_title, $capability, $menu_slug, $callback = '', $icon_url = '', $position = null ) {
+        return $menu_slug;
+    }
+}
+if ( ! function_exists( 'add_submenu_page' ) ) {
+    function add_submenu_page( $parent_slug, $page_title, $menu_title, $capability, $menu_slug, $callback = '', $position = null ) {
+        return $menu_slug;
+    }
+}
+if ( ! function_exists( 'register_setting' ) ) {
+    function register_setting( $option_group, $option_name, $args = array() ) {
+        return true;
+    }
+}
+if ( ! function_exists( 'add_settings_section' ) ) {
+    function add_settings_section( $id, $title, $callback, $page, $args = array() ) {
+        return true;
+    }
+}
+if ( ! function_exists( 'add_settings_field' ) ) {
+    function add_settings_field( $id, $title, $callback, $page, $section = 'default', $args = array() ) {
+        return true;
+    }
+}
 
 // Cost tracker provides calculate_cost(), budget checks used by tests.
 require_once PEPTIDE_NEWS_PLUGIN_DIR . 'includes/class-peptide-news-cost-tracker.php';
