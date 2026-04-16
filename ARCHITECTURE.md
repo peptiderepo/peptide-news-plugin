@@ -43,7 +43,12 @@ peptide-news-plugin/
 │   └── class-peptide-news-logger.php      # Structured DB logging with auto-prune
 │
 ├── admin/
-│   ├── class-peptide-news-admin.php       # Settings page, analytics dashboard, admin assets
+│   ├── class-peptide-news-admin.php       # Main orchestrator (delegator): preserves public interface
+│   ├── class-pn-admin-assets.php          # CSS/JS enqueuing for admin pages
+│   ├── class-pn-admin-menu.php            # Admin menu & submenu registration
+│   ├── class-pn-admin-settings.php        # Settings registration & field renderers (7 sections, 25+ fields)
+│   ├── class-pn-admin-settings-page.php   # Settings page render + plugin log viewer + AJAX handlers
+│   ├── class-pn-admin-dashboard-pages.php # Dashboard, articles, cost dashboard pages
 │   ├── css/admin-style.css                # Admin dashboard styles
 │   ├── js/admin-script.js                 # Analytics charts (Chart.js), AJAX handlers
 │   ├── partials/
