@@ -9,7 +9,9 @@ namespace PeptideNews\Tests\Unit;
 
 use PHPUnit\Framework\TestCase;
 
-// Load the class under test.
+// Load the class under test and its dependencies.
+require_once PEPTIDE_NEWS_PLUGIN_DIR . 'includes/class-peptide-news-source-resolver.php';
+require_once PEPTIDE_NEWS_PLUGIN_DIR . 'includes/class-peptide-news-rss-source.php';
 require_once PEPTIDE_NEWS_PLUGIN_DIR . 'includes/class-peptide-news-fetcher.php';
 
 class FetcherTest extends TestCase {
