@@ -9,7 +9,8 @@ namespace PeptideNews\Tests\Unit;
 
 use PHPUnit\Framework\TestCase;
 
-// Load the class under test.
+// Load the class under test and its dependencies.
+require_once PEPTIDE_NEWS_PLUGIN_DIR . 'includes/class-peptide-news-rest-articles.php';
 require_once PEPTIDE_NEWS_PLUGIN_DIR . 'includes/class-peptide-news-rest-api.php';
 
 class RestApiTest extends TestCase {

@@ -358,6 +358,26 @@ if ( ! function_exists( 'add_settings_field' ) ) {
 require_once PEPTIDE_NEWS_PLUGIN_DIR . 'includes/class-peptide-news-cost-reporter.php';
 require_once PEPTIDE_NEWS_PLUGIN_DIR . 'includes/class-peptide-news-cost-tracker.php';
 
+// REST API stubs.
+if ( ! defined( 'HOUR_IN_SECONDS' ) ) {
+    define( 'HOUR_IN_SECONDS', 3600 );
+}
+if ( ! function_exists( 'register_rest_route' ) ) {
+    function register_rest_route( $namespace, $route, $args = array(), $override = false ) {
+        return true;
+    }
+}
+if ( ! function_exists( 'rest_ensure_response' ) ) {
+    function rest_ensure_response( $response ) {
+        return $response;
+    }
+}
+if ( ! function_exists( 'wp_parse_url' ) ) {
+    function wp_parse_url( $url, $component = -1 ) {
+        return parse_url( $url, $component );
+    }
+}
+
 // Stub WP_REST_Request for REST API tests.
 if ( ! class_exists( 'WP_REST_Request' ) ) {
     class WP_REST_Request {
