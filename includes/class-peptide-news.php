@@ -48,6 +48,7 @@ class Peptide_News {
 		require_once PEPTIDE_NEWS_PLUGIN_DIR . 'includes/class-peptide-news-llm.php';
 		require_once PEPTIDE_NEWS_PLUGIN_DIR . 'includes/class-peptide-news-logger.php';
 		require_once PEPTIDE_NEWS_PLUGIN_DIR . 'includes/class-peptide-news-content-filter.php';
+		require_once PEPTIDE_NEWS_PLUGIN_DIR . 'includes/class-peptide-news-cost-reporter.php';
 		require_once PEPTIDE_NEWS_PLUGIN_DIR . 'includes/class-peptide-news-cost-tracker.php';
 		require_once PEPTIDE_NEWS_PLUGIN_DIR . 'admin/class-pn-admin-assets.php';
 		require_once PEPTIDE_NEWS_PLUGIN_DIR . 'admin/class-pn-admin-menu.php';

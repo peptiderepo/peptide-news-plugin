@@ -353,7 +353,8 @@ if ( ! function_exists( 'add_settings_field' ) ) {
     }
 }
 
-// Cost tracker provides calculate_cost(), budget checks used by tests.
+// Cost subsystem: reporter must load before tracker (tracker proxies to reporter).
+require_once PEPTIDE_NEWS_PLUGIN_DIR . 'includes/class-peptide-news-cost-reporter.php';
 require_once PEPTIDE_NEWS_PLUGIN_DIR . 'includes/class-peptide-news-cost-tracker.php';
 
 // Stub WP_REST_Request for REST API tests.
