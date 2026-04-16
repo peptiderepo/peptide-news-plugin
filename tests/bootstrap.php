@@ -235,7 +235,10 @@ if ( ! class_exists( 'WP_Error' ) ) {
 // Content filter can be loaded standalone (no WordPress runtime needed).
 require_once PEPTIDE_NEWS_PLUGIN_DIR . 'includes/class-peptide-news-content-filter.php';
 
-// LLM class provides is_valid_model() used by Admin sanitize callbacks.
+// LLM subsystem: client and prompt-builder must load before the orchestrator.
+require_once PEPTIDE_NEWS_PLUGIN_DIR . 'includes/class-peptide-news-llm-client.php';
+require_once PEPTIDE_NEWS_PLUGIN_DIR . 'includes/class-peptide-news-llm-prompt-builder.php';
+require_once PEPTIDE_NEWS_PLUGIN_DIR . 'includes/class-peptide-news-llm-ajax.php';
 require_once PEPTIDE_NEWS_PLUGIN_DIR . 'includes/class-peptide-news-llm.php';
 
 // Stub AJAX-related functions used by cost tracker and other modules.
