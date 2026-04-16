@@ -1,38 +1,25 @@
 <?php
 declare( strict_types=1 );
 /**
- * Tracks LLM API costs: logs every API call, enforces monthly budgets, and
- * provides aggregated reporting data for the admin cost dashboard.
+ * Tracks LLM API costs: logs every API call, enforces monthly budgets,
+ * manages model pricing, and prunes old records.
  *
  * Triggered by: Peptide_News_LLM after each call_openrouter() invocation.
- *               Admin AJAX handlers for cost dashboard data.
- *
  * Dependencies: $wpdb (custom table), Peptide_News_Logger.
  *
- * Data flow: LLM::call_openrouter() returns usage data → Cost_Tracker::log_api_call()
- *            writes to wp_peptide_news_llm_costs table. Budget checks happen
- *            before each LLM call via Cost_Tracker::is_budget_exceeded().
- *            Admin dashboard queries aggregated data via get_cost_summary() and
- *            get_daily_costs().
+ * Data flow: LLM::call_openrouter() returns usage data → log_api_call()
+ *            writes to wp_peptide_news_llm_costs. Budget checks happen
+ *            before each LLM call via is_budget_exceeded().
  *
- * @see class-peptide-news-llm.php       — Calls log_api_call() after every API request
- * @see class-peptide-news-admin.php     — Renders cost dashboard and budget settings
- * @see class-peptide-news-activator.php — Creates the llm_costs table on activation
- * @see ARCHITECTURE.md                  — Data flow diagram
+ * @see class-peptide-news-cost-reporter.php — Read-only reporting queries and AJAX handler.
+ * @see class-peptide-news-llm.php           — Calls log_api_call() after every API request.
+ * @see class-peptide-news-activator.php     — Creates the llm_costs table on activation.
  *
  * @since 2.4.0
  */
 class Peptide_News_Cost_Tracker {
 
-	/**
-	 * Default model pricing per 1M tokens (USD).
-	 *
-	 * These are fallback rates used when the API response doesn't include cost data.
-	 * Pricing sourced from OpenRouter's published rates as of April 2026.
-	 * Users can override per-model pricing via the admin settings.
-	 *
-	 * @var array<string, array{input: float, output: float}>
-	 */
+	/** @var array<string, array{input: float, output: float}> Fallback pricing per 1M tokens (USD). */
 	const DEFAULT_MODEL_PRICING = array(
 		'google/gemini-2.0-flash-001'   => array( 'input' => 0.10, 'output' => 0.40 ),
 		'google/gemma-3-27b-it:free'    => array( 'input' => 0.00, 'output' => 0.00 ),
@@ -42,17 +29,12 @@ class Peptide_News_Cost_Tracker {
 		'openai/gpt-4o'                 => array( 'input' => 2.50, 'output' => 10.00 ),
 	);
 
-	/** @var string Budget enforcement mode: 'hard_stop', 'warn_only', or 'disabled'. */
+	/** @var string Budget enforcement modes. */
 	const BUDGET_MODE_HARD_STOP = 'hard_stop';
 	const BUDGET_MODE_WARN_ONLY = 'warn_only';
 	const BUDGET_MODE_DISABLED  = 'disabled';
 
-	/**
-	 * Create the llm_costs table. Called from Activator::activate().
-	 *
-	 * Uses dbDelta() for idempotent CREATE/ALTER so it's safe to call on every
-	 * plugin upgrade without manual migration logic.
-	 */
+	/** Create the llm_costs table. Called from Activator::activate(). Uses dbDelta(). */
 	public static function create_table(): void {
 		global $wpdb;
 
@@ -85,17 +67,7 @@ class Peptide_News_Cost_Tracker {
 	/**
 	 * Log a single API call's token usage and cost.
 	 *
-	 * Called by LLM::call_openrouter() after a successful (or failed) API response.
-	 * Extracts token counts from the OpenRouter response's `usage` field and
-	 * calculates cost using model-specific pricing.
-	 *
-	 * @param string   $model           OpenRouter model ID (e.g., 'google/gemini-2.0-flash-001').
-	 * @param string   $operation       What this call was for: 'keywords', 'summary', or 'filter'.
-	 * @param array    $usage           Token usage from API response: {prompt_tokens, completion_tokens, total_tokens}.
-	 * @param int|null $article_id      Associated article ID, if applicable.
-	 * @param string   $request_id      OpenRouter request ID from response headers (for debugging).
-	 * @param float    $explicit_cost   Cost reported directly by the API (OpenRouter generation.total_cost), if available.
-	 * @return bool True on success.
+	 * Side effects: DB insert, spend cache invalidation, budget alert check.
 	 */
 	public static function log_api_call(
 		string $model,
@@ -111,7 +83,6 @@ class Peptide_News_Cost_Tracker {
 		$completion_tokens = absint( $usage['completion_tokens'] ?? 0 );
 		$total_tokens      = absint( $usage['total_tokens'] ?? ( $prompt_tokens + $completion_tokens ) );
 
-		// Use explicit cost from API if available, otherwise calculate from pricing table.
 		$cost_usd = $explicit_cost > 0.0
 			? $explicit_cost
 			: self::calculate_cost( $model, $prompt_tokens, $completion_tokens );
@@ -139,23 +110,12 @@ class Peptide_News_Cost_Tracker {
 			return false;
 		}
 
-		// Check budget thresholds and fire alerts if needed.
 		self::check_budget_alerts();
 
 		return true;
 	}
 
-	/**
-	 * Calculate estimated cost from token counts using model pricing.
-	 *
-	 * Pricing is per 1M tokens. Checks user-configured overrides first,
-	 * then falls back to DEFAULT_MODEL_PRICING, then to zero (free model assumed).
-	 *
-	 * @param string $model            OpenRouter model ID.
-	 * @param int    $prompt_tokens    Number of input tokens.
-	 * @param int    $completion_tokens Number of output tokens.
-	 * @return float Estimated cost in USD.
-	 */
+	/** Calculate estimated cost from token counts using model pricing (per 1M tokens). */
 	public static function calculate_cost( string $model, int $prompt_tokens, int $completion_tokens ): float {
 		$pricing = self::get_model_pricing( $model );
 
@@ -165,16 +125,8 @@ class Peptide_News_Cost_Tracker {
 		return round( $input_cost + $output_cost, 6 );
 	}
 
-	/**
-	 * Get pricing for a specific model (per 1M tokens).
-	 *
-	 * Checks user-configured custom pricing first, then falls back to defaults.
-	 *
-	 * @param string $model OpenRouter model ID.
-	 * @return array{input: float, output: float}
-	 */
+	/** Get pricing for a model. Checks custom overrides, then defaults, then zero. */
 	public static function get_model_pricing( string $model ): array {
-		// Check user-configured custom pricing overrides.
 		$custom_pricing = get_option( 'peptide_news_custom_model_pricing', array() );
 		if ( is_array( $custom_pricing ) && isset( $custom_pricing[ $model ] ) ) {
 			return array(
@@ -183,7 +135,6 @@ class Peptide_News_Cost_Tracker {
 			);
 		}
 
-		// Fall back to built-in defaults.
 		if ( isset( self::DEFAULT_MODEL_PRICING[ $model ] ) ) {
 			return self::DEFAULT_MODEL_PRICING[ $model ];
 		}
@@ -192,15 +143,7 @@ class Peptide_News_Cost_Tracker {
 		return array( 'input' => 0.0, 'output' => 0.0 );
 	}
 
-	/**
-	 * Check if the monthly budget has been exceeded.
-	 *
-	 * Should be called before every LLM API call to enforce the hard stop.
-	 * Returns true if budget mode is 'hard_stop' and current month's spend
-	 * meets or exceeds the configured limit.
-	 *
-	 * @return bool True if budget is exceeded and calls should be blocked.
-	 */
+	/** Check if monthly budget exceeded. Call before every LLM API call. */
 	public static function is_budget_exceeded(): bool {
 		$mode  = get_option( 'peptide_news_budget_mode', self::BUDGET_MODE_DISABLED );
 		$limit = (float) get_option( 'peptide_news_monthly_budget', 0.0 );
@@ -213,19 +156,10 @@ class Peptide_News_Cost_Tracker {
 			return false;
 		}
 
-		$current_spend = self::get_current_month_spend();
-
-		return $current_spend >= $limit;
+		return self::get_current_month_spend() >= $limit;
 	}
 
-	/**
-	 * Get total spend for the current calendar month.
-	 *
-	 * Uses a short-lived transient cache (5 min) to avoid hammering the DB
-	 * on every budget check during batch processing.
-	 *
-	 * @return float Total USD spent this month.
-	 */
+	/** Get total spend for current calendar month (5 min transient cache). */
 	public static function get_current_month_spend(): float {
 		$cache_key = 'peptide_news_month_spend_' . gmdate( 'Y_m' );
 		$cached    = get_transient( $cache_key );
@@ -250,22 +184,12 @@ class Peptide_News_Cost_Tracker {
 		return $spend;
 	}
 
-	/**
-	 * Invalidate the monthly spend cache.
-	 *
-	 * Called after logging a new API call so the next budget check
-	 * reflects the latest spend.
-	 */
+	/** Invalidate the monthly spend cache. */
 	public static function invalidate_spend_cache(): void {
 		delete_transient( 'peptide_news_month_spend_' . gmdate( 'Y_m' ) );
 	}
 
-	/**
-	 * Check budget threshold alerts and log warnings.
-	 *
-	 * Fires at 50%, 80%, and 100% of the monthly budget. Each threshold
-	 * is only logged once per month (tracked via a transient).
-	 */
+	/** Check budget threshold alerts (50/80/100%) and log warnings once per month. */
 	private static function check_budget_alerts(): void {
 		$mode  = get_option( 'peptide_news_budget_mode', self::BUDGET_MODE_DISABLED );
 		$limit = (float) get_option( 'peptide_news_monthly_budget', 0.0 );
@@ -274,7 +198,6 @@ class Peptide_News_Cost_Tracker {
 			return;
 		}
 
-		// Invalidate cache so we get fresh numbers.
 		self::invalidate_spend_cache();
 
 		$spend   = self::get_current_month_spend();
@@ -290,13 +213,10 @@ class Peptide_News_Cost_Tracker {
 
 		foreach ( $thresholds as $threshold ) {
 			if ( $percent >= $threshold && ! in_array( $threshold, $fired, true ) ) {
-				$message = sprintf(
+				Peptide_News_Logger::warning( sprintf(
 					'LLM budget alert: %.0f%% of $%.2f monthly budget used ($%.4f spent).',
-					$percent,
-					$limit,
-					$spend
-				);
-				Peptide_News_Logger::warning( $message, 'cost' );
+					$percent, $limit, $spend
+				), 'cost' );
 
 				if ( 100 === $threshold && self::BUDGET_MODE_HARD_STOP === $mode ) {
 					Peptide_News_Logger::error( 'Monthly LLM budget exceeded — API calls will be blocked until next month.', 'cost' );
@@ -309,225 +229,11 @@ class Peptide_News_Cost_Tracker {
 		set_transient( $alert_key, $fired, 35 * DAY_IN_SECONDS );
 	}
 
-	/**
-	 * Get an aggregated cost summary for a date range.
-	 *
-	 * Returns total spend, total tokens, request count, and per-model breakdown.
-	 * Used by the admin cost dashboard.
-	 *
-	 * @param string $start_date Start date (Y-m-d format).
-	 * @param string $end_date   End date (Y-m-d format).
-	 * @return array{total_cost: float, total_tokens: int, total_requests: int, by_model: array, by_operation: array}
-	 */
-	public static function get_cost_summary( string $start_date, string $end_date ): array {
-		global $wpdb;
-		$table = $wpdb->prefix . 'peptide_news_llm_costs';
-
-		// Overall totals.
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-		$totals = $wpdb->get_row(
-			$wpdb->prepare(
-				"SELECT
-					COALESCE(SUM(cost_usd), 0) AS total_cost,
-					COALESCE(SUM(total_tokens), 0) AS total_tokens,
-					COUNT(*) AS total_requests
-				FROM {$table}
-				WHERE created_at >= %s AND created_at < %s",
-				$start_date . ' 00:00:00',
-				$end_date . ' 23:59:59'
-			)
-		);
-
-		// Per-model breakdown.
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-		$by_model = $wpdb->get_results(
-			$wpdb->prepare(
-				"SELECT
-					model,
-					COUNT(*) AS requests,
-					COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens,
-					COALESCE(SUM(completion_tokens), 0) AS completion_tokens,
-					COALESCE(SUM(total_tokens), 0) AS total_tokens,
-					COALESCE(SUM(cost_usd), 0) AS total_cost
-				FROM {$table}
-				WHERE created_at >= %s AND created_at < %s
-				GROUP BY model
-				ORDER BY total_cost DESC",
-				$start_date . ' 00:00:00',
-				$end_date . ' 23:59:59'
-			)
-		);
-
-		// Per-operation breakdown.
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-		$by_operation = $wpdb->get_results(
-			$wpdb->prepare(
-				"SELECT
-					operation,
-					COUNT(*) AS requests,
-					COALESCE(SUM(total_tokens), 0) AS total_tokens,
-					COALESCE(SUM(cost_usd), 0) AS total_cost
-				FROM {$table}
-				WHERE created_at >= %s AND created_at < %s
-				GROUP BY operation
-				ORDER BY total_cost DESC",
-				$start_date . ' 00:00:00',
-				$end_date . ' 23:59:59'
-			)
-		);
-
-		return array(
-			'total_cost'     => (float) ( $totals->total_cost ?? 0 ),
-			'total_tokens'   => (int) ( $totals->total_tokens ?? 0 ),
-			'total_requests' => (int) ( $totals->total_requests ?? 0 ),
-			'by_model'       => ! empty( $by_model ) ? $by_model : array(),
-			'by_operation'   => ! empty( $by_operation ) ? $by_operation : array(),
-		);
-	}
-
-	/**
-	 * Get daily cost data for charting.
-	 *
-	 * Returns one row per day within the date range with aggregated cost and token counts.
-	 *
-	 * @param string $start_date Start date (Y-m-d).
-	 * @param string $end_date   End date (Y-m-d).
-	 * @return array Array of objects with {date, cost, tokens, requests}.
-	 */
-	public static function get_daily_costs( string $start_date, string $end_date ): array {
-		global $wpdb;
-		$table = $wpdb->prefix . 'peptide_news_llm_costs';
-
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-		$results = $wpdb->get_results(
-			$wpdb->prepare(
-				"SELECT
-					DATE(created_at) AS date,
-					COALESCE(SUM(cost_usd), 0) AS cost,
-					COALESCE(SUM(total_tokens), 0) AS tokens,
-					COUNT(*) AS requests
-				FROM {$table}
-				WHERE created_at >= %s AND created_at < %s
-				GROUP BY DATE(created_at)
-				ORDER BY date ASC",
-				$start_date . ' 00:00:00',
-				$end_date . ' 23:59:59'
-			)
-		);
-
-		return ! empty( $results ) ? $results : array();
-	}
-
-	/**
-	 * Get the most recent API calls for the cost log table.
-	 *
-	 * @param int $limit Number of recent entries to return.
-	 * @return array Array of cost log rows.
-	 */
-	public static function get_recent_calls( int $limit = 50 ): array {
-		global $wpdb;
-		$table = $wpdb->prefix . 'peptide_news_llm_costs';
-
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-		$results = $wpdb->get_results(
-			$wpdb->prepare(
-				"SELECT * FROM {$table} ORDER BY created_at DESC LIMIT %d",
-				$limit
-			)
-		);
-
-		return ! empty( $results ) ? $results : array();
-	}
-
-	/**
-	 * AJAX handler: return cost dashboard data.
-	 *
-	 * Accepts 'period' param: 'day', 'week', 'month', or 'custom' with start/end dates.
-	 * Returns summary stats and daily chart data.
-	 *
-	 * @since 2.4.0
-	 */
-	public static function ajax_get_cost_data(): void {
-		check_ajax_referer( 'peptide_news_admin', 'nonce' );
-		if ( ! current_user_can( 'manage_options' ) ) {
-			wp_send_json_error( 'Unauthorized', 403 );
-		}
-
-		$period = sanitize_text_field( wp_unslash( $_GET['period'] ?? 'month' ) );
-
-		switch ( $period ) {
-			case 'day':
-				$start_date = gmdate( 'Y-m-d' );
-				$end_date   = gmdate( 'Y-m-d' );
-				break;
-
-			case 'week':
-				$start_date = gmdate( 'Y-m-d', strtotime( '-6 days' ) );
-				$end_date   = gmdate( 'Y-m-d' );
-				break;
-
-			case 'custom':
-				$raw_start  = sanitize_text_field( wp_unslash( $_GET['start_date'] ?? '' ) );
-				$raw_end    = sanitize_text_field( wp_unslash( $_GET['end_date'] ?? '' ) );
-				$start_date = self::validate_date( $raw_start ) ? $raw_start : gmdate( 'Y-m-01' );
-				$end_date   = self::validate_date( $raw_end ) ? $raw_end : gmdate( 'Y-m-d' );
-				break;
-
-			case 'month':
-			default:
-				$start_date = gmdate( 'Y-m-01' );
-				$end_date   = gmdate( 'Y-m-d' );
-				break;
-		}
-
-		$summary     = self::get_cost_summary( $start_date, $end_date );
-		$daily_costs = self::get_daily_costs( $start_date, $end_date );
-		$recent      = self::get_recent_calls( 25 );
-
-		// Budget context.
-		$budget_limit = (float) get_option( 'peptide_news_monthly_budget', 0.0 );
-		$budget_mode  = get_option( 'peptide_news_budget_mode', self::BUDGET_MODE_DISABLED );
-		$month_spend  = self::get_current_month_spend();
-
-		wp_send_json_success( array(
-			'summary'      => $summary,
-			'daily_costs'  => $daily_costs,
-			'recent_calls' => $recent,
-			'budget'       => array(
-				'limit'        => $budget_limit,
-				'mode'         => $budget_mode,
-				'month_spend'  => $month_spend,
-				'percent_used' => $budget_limit > 0 ? round( ( $month_spend / $budget_limit ) * 100, 1 ) : 0,
-			),
-			'period'       => array(
-				'start' => $start_date,
-				'end'   => $end_date,
-			),
-		) );
-	}
-
-	/**
-	 * Validate a date string is in Y-m-d format and represents a real date.
-	 *
-	 * @param string $date Date string to validate.
-	 * @return bool True if valid Y-m-d date.
-	 */
-	private static function validate_date( string $date ): bool {
-		$d = \DateTime::createFromFormat( 'Y-m-d', $date );
-		return $d && $d->format( 'Y-m-d' ) === $date;
-	}
-
-	/**
-	 * Prune old cost records beyond the configured retention period.
-	 *
-	 * Called on a monthly cron schedule. Default retention: 365 days.
-	 *
-	 * @return int Number of rows deleted.
-	 */
+	/** Prune cost records older than retention period (default 365 days, min 30). */
 	public static function prune_old_records(): int {
 		$retention_days = absint( get_option( 'peptide_news_cost_retention', 365 ) );
 		if ( $retention_days < 30 ) {
-			$retention_days = 30; // Minimum 30 days to prevent accidental data loss.
+			$retention_days = 30;
 		}
 
 		global $wpdb;
@@ -546,5 +252,25 @@ class Peptide_News_Cost_Tracker {
 		}
 
 		return (int) $deleted;
+	}
+
+	/** @see Peptide_News_Cost_Reporter::ajax_get_cost_data() */
+	public static function ajax_get_cost_data(): void {
+		Peptide_News_Cost_Reporter::ajax_get_cost_data();
+	}
+
+	/** @see Peptide_News_Cost_Reporter::get_cost_summary() */
+	public static function get_cost_summary( string $start_date, string $end_date ): array {
+		return Peptide_News_Cost_Reporter::get_cost_summary( $start_date, $end_date );
+	}
+
+	/** @see Peptide_News_Cost_Reporter::get_daily_costs() */
+	public static function get_daily_costs( string $start_date, string $end_date ): array {
+		return Peptide_News_Cost_Reporter::get_daily_costs( $start_date, $end_date );
+	}
+
+	/** @see Peptide_News_Cost_Reporter::get_recent_calls() */
+	public static function get_recent_calls( int $limit = 50 ): array {
+		return Peptide_News_Cost_Reporter::get_recent_calls( $limit );
 	}
 }
