@@ -233,6 +233,7 @@ if ( ! class_exists( 'WP_Error' ) ) {
 
 // ── Load plugin classes for testing ───────────────────────────────────
 // Content filter can be loaded standalone (no WordPress runtime needed).
+require_once PEPTIDE_NEWS_PLUGIN_DIR . 'includes/class-peptide-news-content-filter-rules.php';
 require_once PEPTIDE_NEWS_PLUGIN_DIR . 'includes/class-peptide-news-content-filter.php';
 
 // LLM subsystem: client and prompt-builder must load before the orchestrator.
