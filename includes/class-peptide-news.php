@@ -40,7 +40,9 @@ class Peptide_News {
 		require_once PEPTIDE_NEWS_PLUGIN_DIR . 'includes/class-peptide-news-source-resolver.php';
 		require_once PEPTIDE_NEWS_PLUGIN_DIR . 'includes/class-peptide-news-rss-source.php';
 		require_once PEPTIDE_NEWS_PLUGIN_DIR . 'includes/class-peptide-news-fetcher.php';
+		require_once PEPTIDE_NEWS_PLUGIN_DIR . 'includes/class-peptide-news-analytics-reports.php';
 		require_once PEPTIDE_NEWS_PLUGIN_DIR . 'includes/class-peptide-news-analytics.php';
+		require_once PEPTIDE_NEWS_PLUGIN_DIR . 'includes/class-peptide-news-rest-articles.php';
 		require_once PEPTIDE_NEWS_PLUGIN_DIR . 'includes/class-peptide-news-rest-api.php';
 		require_once PEPTIDE_NEWS_PLUGIN_DIR . 'includes/class-peptide-news-llm-client.php';
 		require_once PEPTIDE_NEWS_PLUGIN_DIR . 'includes/class-peptide-news-llm-prompt-builder.php';
@@ -53,6 +55,7 @@ class Peptide_News {
 		require_once PEPTIDE_NEWS_PLUGIN_DIR . 'includes/class-peptide-news-cost-tracker.php';
 		require_once PEPTIDE_NEWS_PLUGIN_DIR . 'admin/class-pn-admin-assets.php';
 		require_once PEPTIDE_NEWS_PLUGIN_DIR . 'admin/class-pn-admin-menu.php';
+		require_once PEPTIDE_NEWS_PLUGIN_DIR . 'admin/class-pn-admin-filter-field-renderers.php';
 		require_once PEPTIDE_NEWS_PLUGIN_DIR . 'admin/class-pn-admin-field-renderers.php';
 		require_once PEPTIDE_NEWS_PLUGIN_DIR . 'admin/class-pn-admin-settings.php';
 		require_once PEPTIDE_NEWS_PLUGIN_DIR . 'admin/class-pn-admin-log-viewer.php';
