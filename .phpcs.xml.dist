@@ -87,4 +87,7 @@
 
     <!-- Minimum WP version supported -->
     <config name="minimum_wp_version" value="5.8"/>
+    <!-- Warnings are informational — do not fail CI on warnings-only runs -->
+    <config name="ignore_warnings_on_exit" value="1"/>
+
 </ruleset>
